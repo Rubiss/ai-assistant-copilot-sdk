@@ -1,3 +1,5 @@
+import os from "os";
+import path from "path";
 import { CopilotClient, CopilotSession, approveAll } from "@github/copilot-sdk";
 
 // Truncate long responses to Discord's 2000-char limit
@@ -27,12 +29,15 @@ export class SessionManager {
     if (inFlight) return inFlight;
 
     // Start creation and register the promise immediately so concurrent calls wait
+    const userSkillsDir = path.join(os.homedir(), ".agents", "skills");
     const creation = this.client
       .createSession({
         model: "claude-haiku-4.5",
         // Approve all tool/permission requests. This bot runs on a private server;
         // restrict access at the Discord server/channel level if needed.
         onPermissionRequest: approveAll,
+        // Always load user-scope skills from ~/.agents/skills
+        skillDirectories: [userSkillsDir],
       })
       .then((session) => {
         this.sessions.set(userId, session);
