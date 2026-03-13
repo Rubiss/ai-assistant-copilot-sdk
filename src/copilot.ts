@@ -60,6 +60,7 @@ export class SessionManager {
   }
 
   async listModels() {
+    await this.client.start(); // listModels() requires an active connection; start() is idempotent
     return this.client.listModels();
   }
 
