@@ -59,6 +59,15 @@ export class SessionManager {
     return result?.data?.content ?? "(no response)";
   }
 
+  async listModels() {
+    return this.client.listModels();
+  }
+
+  async setModel(userId: string, model: string): Promise<void> {
+    const session = await this.getOrCreateSession(userId);
+    await session.setModel(model);
+  }
+
   async resetSession(userId: string): Promise<void> {
     // Delete from map FIRST so new requests don't pick up the dying session
     const session = this.sessions.get(userId);

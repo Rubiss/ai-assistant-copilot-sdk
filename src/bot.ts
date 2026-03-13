@@ -11,6 +11,7 @@ import { handleChat } from "./handlers/slash/chat.js";
 import { handleReset } from "./handlers/slash/reset.js";
 import { handleServers } from "./handlers/slash/servers.js";
 import { handleLeave } from "./handlers/slash/leave.js";
+import { handleModel } from "./handlers/slash/model.js";
 import { handleMention } from "./handlers/mention.js";
 
 // If DISCORD_ALLOWED_USERS is set, only these Discord user IDs can use the bot.
@@ -66,6 +67,9 @@ export function createBot(sessions: SessionManager): Client {
         break;
       case "leave":
         await handleLeave(cmd, client);
+        break;
+      case "model":
+        await handleModel(cmd, sessions);
         break;
       default:
         console.warn(`Unknown command: ${cmd.commandName}`);

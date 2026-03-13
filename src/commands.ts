@@ -38,6 +38,23 @@ export const commands = [
         .setDescription("The server ID to leave (get IDs from /servers)")
         .setRequired(true)
     ),
+  new SlashCommandBuilder()
+    .setName("model")
+    .setDescription("List available models or switch the model for your session")
+    .addSubcommand((sub) =>
+      sub.setName("list").setDescription("List all available models")
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("set")
+        .setDescription("Switch to a different model (takes effect on your next message)")
+        .addStringOption((opt) =>
+          opt
+            .setName("model_id")
+            .setDescription("Model ID to switch to (e.g. claude-opus-4.5)")
+            .setRequired(true)
+        )
+    ),
 ];
 
-export type CommandName = "ask" | "chat" | "reset" | "servers" | "leave";
+export type CommandName = "ask" | "chat" | "reset" | "servers" | "leave" | "model";
