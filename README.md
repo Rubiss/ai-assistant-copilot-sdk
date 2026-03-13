@@ -32,7 +32,7 @@ A personal Discord bot backed by the [GitHub Copilot SDK](https://github.com/git
 ### 2. Clone and install
 
 ```bash
-git clone <your-repo-url>
+git clone git@github.com:Rubiss/ai-assistant-copilot-sdk.git
 cd ai-assistant
 npm install
 ```
