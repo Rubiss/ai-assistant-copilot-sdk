@@ -14,6 +14,13 @@ import { handleLeave } from "./handlers/slash/leave.js";
 import { handleModel } from "./handlers/slash/model.js";
 import { handleStatus } from "./handlers/slash/status.js";
 import { handleHistory } from "./handlers/slash/history.js";
+import { handleAgent } from "./handlers/slash/agent.js";
+import { handleMode } from "./handlers/slash/mode.js";
+import { handleCompact } from "./handlers/slash/compact.js";
+import { handleFleet } from "./handlers/slash/fleet.js";
+import { handlePlan } from "./handlers/slash/plan.js";
+import { handleWorkspace } from "./handlers/slash/workspace.js";
+import { handleMcp } from "./handlers/slash/mcp.js";
 import { handleMention } from "./handlers/mention.js";
 
 // If DISCORD_ALLOWED_USERS is set, only these Discord user IDs can use the bot.
@@ -78,6 +85,27 @@ export function createBot(sessions: SessionManager): Client {
         break;
       case "history":
         await handleHistory(cmd, sessions);
+        break;
+      case "agent":
+        await handleAgent(cmd, sessions);
+        break;
+      case "mode":
+        await handleMode(cmd, sessions);
+        break;
+      case "compact":
+        await handleCompact(cmd, sessions);
+        break;
+      case "fleet":
+        await handleFleet(cmd, sessions);
+        break;
+      case "plan":
+        await handlePlan(cmd, sessions);
+        break;
+      case "workspace":
+        await handleWorkspace(cmd, sessions);
+        break;
+      case "mcp":
+        await handleMcp(cmd, sessions);
         break;
       default:
         console.warn(`Unknown command: ${cmd.commandName}`);

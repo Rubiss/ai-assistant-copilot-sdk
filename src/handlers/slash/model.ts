@@ -27,10 +27,20 @@ export async function handleModel(
       await sessions.setModel(sessionKey, modelId);
       const scope = interaction.channel?.isThread() ? "for this thread" : "for your session";
       await interaction.editReply(`✅ Model switched to \`${modelId}\` ${scope}. Takes effect on the next message.`);
+    } else if (sub === "current") {
+      const sessionKey = interaction.channel?.isThread() ? interaction.channelId : interaction.user.id;
+      await interaction.deferReply({ ephemeral: true });
+      const modelId = await sessions.getCurrentModel(sessionKey);
+      const scope = interaction.channel?.isThread() ? "this thread" : "your session";
+      await interaction.editReply(
+        modelId
+          ? `🤖 Current model for ${scope}: \`${modelId}\``
+          : `🤖 No model explicitly set for ${scope} (using session default).`
+      );
     }
   } catch (err) {
     console.error(`[/model ${sub}] Error:`, err);
-    const msg = `❌ Failed to ${sub === "list" ? "list models" : "switch model"}. Please try again.`;
+    const msg = `❌ Failed to ${sub === "list" ? "list models" : sub === "current" ? "get current model" : "switch model"}. Please try again.`;
     if (interaction.deferred) {
       await interaction.editReply(msg);
     } else {

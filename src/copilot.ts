@@ -1,12 +1,14 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { CopilotClient, CopilotSession, approveAll } from "@github/copilot-sdk";
+import { CopilotClient, CopilotSession, MCPServerConfig, approveAll } from "@github/copilot-sdk";
 
 // Truncate long responses to Discord's 2000-char limit
 export function truncateForDiscord(text: string): string {
-  if (text.length <= 1990) return text;
-  return text.slice(0, 1990) + "\n…*(response truncated)*";
+  const suffix = "\n…*(response truncated)*"; // 24 chars
+  const max = 2000;
+  if (text.length <= max) return text;
+  return text.slice(0, max - suffix.length) + suffix;
 }
 
 /**
@@ -63,6 +65,94 @@ class SessionStore {
   }
 }
 
+/**
+ * Loads and merges MCP server configs from:
+ *   1. ~/.config/Code/User/mcp.json  (global; "mcpServers" key)
+ *   2. <workingDir>/.vscode/mcp.json (workspace; "servers" key)
+ *
+ * Workspace entries win on name conflict. The `tools: ["*"]` default is
+ * injected when absent. Values matching `${input:xxx}` are resolved from
+ * env vars named MCP_INPUT_<XXX> (uppercase, hyphens → underscores).
+ * Servers that still contain unresolved `${input:...}` after resolution are
+ * dropped and logged so the bot starts cleanly without crashing.
+ */
+export class McpConfigLoader {
+  private static readonly GLOBAL_PATH =
+    process.env.MCP_CONFIG_PATH ??
+    path.join(os.homedir(), ".config", "Code", "User", "mcp.json");
+
+  static load(workingDir?: string): Record<string, MCPServerConfig> {
+    const global = this.readFile(this.GLOBAL_PATH, "mcpServers");
+    const workspace = workingDir
+      ? this.readFile(path.join(workingDir, ".vscode", "mcp.json"), "servers")
+      : {};
+    const merged = { ...global, ...workspace };
+    return this.resolveAndFilter(merged);
+  }
+
+  private static readFile(
+    filePath: string,
+    key: string
+  ): Record<string, unknown> {
+    try {
+      const raw = fs.readFileSync(filePath, "utf8");
+      const parsed = JSON.parse(raw);
+      const servers = parsed[key];
+      if (servers && typeof servers === "object" && !Array.isArray(servers)) {
+        return servers as Record<string, unknown>;
+      }
+    } catch {
+      // Missing or malformed — silently skip
+    }
+    return {};
+  }
+
+  private static resolveAndFilter(
+    raw: Record<string, unknown>
+  ): Record<string, MCPServerConfig> {
+    const result: Record<string, MCPServerConfig> = {};
+    for (const [name, cfg] of Object.entries(raw)) {
+      try {
+        const resolved = this.resolveInputs(JSON.stringify(cfg));
+        if (resolved === null) {
+          console.warn(`[McpConfigLoader] Skipping "${name}": unresolved \${input:...} values`);
+          continue;
+        }
+        const server = JSON.parse(resolved) as Record<string, unknown>;
+        if (!Array.isArray(server["tools"])) server["tools"] = ["*"];
+        result[name] = server as unknown as MCPServerConfig;
+      } catch {
+        console.warn(`[McpConfigLoader] Skipping "${name}": invalid config`);
+      }
+    }
+    return result;
+  }
+
+  /** Returns null if any ${input:xxx} remain after env resolution. */
+  private static resolveInputs(json: string): string | null {
+    const resolved = json.replace(/\$\{input:([\w-]+)\}/g, (match, id: string) => {
+      const envKey = "MCP_INPUT_" + id.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+      return process.env[envKey] ?? match;
+    });
+    return /\$\{input:[\w-]+\}/.test(resolved) ? null : resolved;
+  }
+
+  /** Returns per-server status including whether it was skipped. */
+  static status(workingDir?: string): { name: string; source: string; enabled: boolean }[] {
+    const globalRaw = this.readFile(this.GLOBAL_PATH, "mcpServers");
+    const workspaceRaw = workingDir
+      ? this.readFile(path.join(workingDir, ".vscode", "mcp.json"), "servers")
+      : {};
+    const merged = { ...globalRaw, ...workspaceRaw };
+
+    return Object.keys(merged).map((name) => {
+      const source = name in workspaceRaw ? "workspace" : "global";
+      const resolved = this.resolveInputs(JSON.stringify(merged[name]));
+      return { name, source, enabled: resolved !== null };
+    });
+  }
+}
+
 export class SessionManager {
   private client: CopilotClient;
   // Stores settled sessions for established users
@@ -73,6 +163,10 @@ export class SessionManager {
   private messageQueues: Map<string, Promise<unknown>> = new Map();
   // Persists Discord key → Copilot session ID across restarts
   private store: SessionStore = new SessionStore();
+  // Per-session working directory override (affects MCP loading and agent file ops)
+  private workingDirOverrides: Map<string, string> = new Map();
+  // Per-session MCP tool overrides: server name → tools array (["*"] = enabled, [] = disabled)
+  private mcpToolOverrides: Map<string, Record<string, string[]>> = new Map();
 
   constructor() {
     this.client = new CopilotClient();
@@ -88,9 +182,13 @@ export class SessionManager {
     if (inFlight) return inFlight;
 
     const userSkillsDir = path.join(os.homedir(), ".agents", "skills");
+    const workingDir = this.workingDirOverrides.get(key);
+    const mcpServers = this.buildMcpConfig(key);
     const sessionConfig = {
       onPermissionRequest: approveAll,
       skillDirectories: [userSkillsDir] as string[],
+      ...(workingDir ? { workingDirectory: workingDir } : {}),
+      ...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
     };
 
     const storedSessionId = this.store.get(key);
@@ -137,7 +235,7 @@ export class SessionManager {
     const tail = this.messageQueues.get(userId) ?? Promise.resolve();
     const next = tail.then(async () => {
       const session = await this.getOrCreateSession(userId);
-      const result = await session.sendAndWait({ prompt }, 5 * 60 * 1000); // 5-minute timeout
+      const result = await session.sendAndWait({ prompt }, parseInt(process.env.COPILOT_TIMEOUT_MS ?? "") || 10 * 60 * 1000); // default 10-minute timeout
       return result?.data?.content ?? "(no response)";
     });
     // Non-rejecting tail so errors don't permanently block the queue
@@ -170,6 +268,101 @@ export class SessionManager {
     await session.setModel(model);
   }
 
+  async getCurrentModel(key: string): Promise<string | undefined> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.model.getCurrent();
+    return result.modelId;
+  }
+
+  // ── Agent management ────────────────────────────────────────────────────────
+
+  async listAgents(key: string): Promise<{ name: string; displayName: string; description: string }[]> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.agent.list();
+    return result.agents;
+  }
+
+  async getCurrentAgent(key: string): Promise<{ name: string; displayName: string; description: string } | null> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.agent.getCurrent();
+    return result.agent;
+  }
+
+  async selectAgent(key: string, name: string): Promise<{ name: string; displayName: string; description: string }> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.agent.select({ name });
+    return result.agent;
+  }
+
+  async deselectAgent(key: string): Promise<void> {
+    const session = await this.getOrCreateSession(key);
+    await session.rpc.agent.deselect();
+  }
+
+  // ── Session mode ─────────────────────────────────────────────────────────────
+
+  async getMode(key: string): Promise<"interactive" | "plan" | "autopilot"> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.mode.get();
+    return result.mode;
+  }
+
+  async setMode(key: string, mode: "interactive" | "plan" | "autopilot"): Promise<void> {
+    const session = await this.getOrCreateSession(key);
+    await session.rpc.mode.set({ mode });
+  }
+
+  // ── Compaction ───────────────────────────────────────────────────────────────
+
+  async compact(key: string): Promise<{ success: boolean; tokensRemoved: number; messagesRemoved: number }> {
+    const session = await this.getOrCreateSession(key);
+    return session.rpc.compaction.compact();
+  }
+
+  // ── Fleet ────────────────────────────────────────────────────────────────────
+
+  async startFleet(key: string, prompt?: string): Promise<boolean> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.fleet.start({ prompt });
+    return result.started;
+  }
+
+  // ── Plan management ──────────────────────────────────────────────────────────
+
+  async readPlan(key: string): Promise<{ exists: boolean; content: string | null; path: string | null }> {
+    const session = await this.getOrCreateSession(key);
+    return session.rpc.plan.read();
+  }
+
+  async updatePlan(key: string, content: string): Promise<void> {
+    const session = await this.getOrCreateSession(key);
+    await session.rpc.plan.update({ content });
+  }
+
+  async deletePlan(key: string): Promise<void> {
+    const session = await this.getOrCreateSession(key);
+    await session.rpc.plan.delete();
+  }
+
+  // ── Workspace management ─────────────────────────────────────────────────────
+
+  async listWorkspaceFiles(key: string): Promise<string[]> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.workspace.listFiles();
+    return result.files;
+  }
+
+  async readWorkspaceFile(key: string, filePath: string): Promise<string> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.workspace.readFile({ path: filePath });
+    return result.content;
+  }
+
+  async createWorkspaceFile(key: string, filePath: string, content: string): Promise<void> {
+    const session = await this.getOrCreateSession(key);
+    await session.rpc.workspace.createFile({ path: filePath, content });
+  }
+
   async resetSession(key: string): Promise<void> {
     const session = this.sessions.get(key);
     const storedSessionId = this.store.get(key);
@@ -179,6 +372,8 @@ export class SessionManager {
     this.pending.delete(key);
     this.messageQueues.delete(key);
     this.store.delete(key);
+    // Preserve working dir and MCP overrides across reset so users don't have
+    // to re-configure after /reset — they can clear them explicitly via /mcp
 
     // Disconnect the live session if present (frees in-process resources)
     if (session) {
@@ -195,6 +390,65 @@ export class SessionManager {
         console.error(`[SessionManager] Error deleting session ${sessionId}:`, err)
       );
     }
+  }
+
+  // --- MCP + Working Directory management ---
+
+  /** Build the mcpServers config for session creation by merging base config with session overrides. */
+  private buildMcpConfig(key: string): Record<string, MCPServerConfig> {
+    const workingDir = this.workingDirOverrides.get(key);
+    const base = McpConfigLoader.load(workingDir);
+    const overrides = this.mcpToolOverrides.get(key) ?? {};
+    const result: Record<string, MCPServerConfig> = {};
+    for (const [name, cfg] of Object.entries(base)) {
+      if (name in overrides) {
+        result[name] = { ...cfg, tools: overrides[name] };
+      } else {
+        result[name] = cfg;
+      }
+    }
+    // Servers skipped due to unresolved ${input:...} are absent from base and
+    // cannot be added here regardless of overrides — they remain unavailable
+    // until their env vars are set and the session is reset.
+    return result;
+  }
+
+  /** Set the working directory for a session. Takes effect when the session is (re)created. */
+  setSessionWorkingDir(key: string, dir: string): void {
+    this.workingDirOverrides.set(key, dir);
+  }
+
+  /** Get the current working directory override for a session. */
+  getSessionWorkingDir(key: string): string | undefined {
+    return this.workingDirOverrides.get(key);
+  }
+
+  /** Enable or disable an MCP server for a session. Takes effect when the session is (re)created. */
+  setSessionMcpEnabled(key: string, serverName: string, enabled: boolean): void {
+    const overrides = this.mcpToolOverrides.get(key) ?? {};
+    overrides[serverName] = enabled ? ["*"] : [];
+    this.mcpToolOverrides.set(key, overrides);
+  }
+
+  /**
+   * Returns MCP server status for a session, merging base config with per-session overrides.
+   * Skipped servers (unresolvable inputs) remain skipped regardless of overrides.
+   */
+  getMcpStatus(key: string): { name: string; source: string; enabled: boolean; skipped: boolean }[] {
+    const workingDir = this.workingDirOverrides.get(key);
+    const overrides = this.mcpToolOverrides.get(key) ?? {};
+    const statusList = McpConfigLoader.status(workingDir);
+    return statusList.map((s) => {
+      const skipped = !s.enabled; // unresolvable ${input:...} values
+      if (skipped) {
+        // Overrides cannot fix unresolvable inputs — always show as skipped
+        return { ...s, enabled: false, skipped: true };
+      }
+      if (s.name in overrides) {
+        return { ...s, enabled: overrides[s.name].length > 0, skipped: false };
+      }
+      return { ...s, skipped: false };
+    });
   }
 
   async shutdown(): Promise<void> {

@@ -6,6 +6,7 @@ export async function handleAsk(
   sessions: SessionManager
 ): Promise<void> {
   const prompt = interaction.options.getString("prompt", true);
+  const workspace = interaction.options.getString("workspace", false);
   const tempKey = `ask_tmp_${interaction.user.id}_${Date.now()}`;
 
   try {
@@ -13,6 +14,7 @@ export async function handleAsk(
 
     let response: string;
     try {
+      if (workspace) sessions.setSessionWorkingDir(tempKey, workspace);
       response = await sessions.sendMessage(tempKey, prompt);
     } finally {
       // Always clean up the temp session, even on error

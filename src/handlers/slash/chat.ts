@@ -6,11 +6,13 @@ export async function handleChat(
   sessions: SessionManager
 ): Promise<void> {
   const message = interaction.options.getString("message", true);
+  const workspace = interaction.options.getString("workspace", false);
 
   // DMs can't have threads — treat the whole DM as one persistent session
   if (interaction.channel?.isDMBased()) {
     try {
       await interaction.deferReply();
+      if (workspace) sessions.setSessionWorkingDir(interaction.user.id, workspace);
       const response = await sessions.sendMessage(interaction.user.id, message);
       await interaction.editReply(truncateForDiscord(response));
     } catch (err) {
@@ -32,6 +34,7 @@ export async function handleChat(
 
     if (interaction.channel?.isThread()) {
       // Can't create a thread inside a thread — use the current thread as the session
+      if (workspace) sessions.setSessionWorkingDir(interaction.channelId, workspace);
       const response = await sessions.sendMessage(interaction.channelId, message);
       await interaction.editReply(truncateForDiscord(response));
       return;
@@ -47,6 +50,7 @@ export async function handleChat(
     });
 
     // Session keyed by thread ID — fully isolated per conversation
+    if (workspace) sessions.setSessionWorkingDir(thread.id, workspace);
     const response = await sessions.sendMessage(thread.id, message);
     await thread.send(truncateForDiscord(response));
 
