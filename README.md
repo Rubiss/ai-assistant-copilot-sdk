@@ -1,13 +1,16 @@
 # AI Assistant
 
-A personal Discord bot backed by the [GitHub Copilot SDK](https://github.com/github/copilot-sdk). Chat with Copilot directly from a Discord channel — with full tool access, persistent conversation history, and slash commands.
+A personal Discord bot backed by the [GitHub Copilot SDK](https://github.com/github/copilot-sdk). Chat with Copilot directly from a Discord channel — with full tool access, persistent conversation history, slash commands, and thread-based isolated sessions.
 
 ## Features
 
+- **Thread-based chat** — `/chat` spawns a dedicated Discord thread per conversation, each with its own isolated session context
 - **Free-form chat** in a designated channel — no `@mention` required
-- **Persistent session** per user — conversation history is maintained across messages
+- **Persistent session** per user/thread — conversation history maintained across messages
 - **Full tool access** — Copilot can read files, run shell commands, search the web, etc.
-- **Slash commands** for quick actions
+- **User-scope skills** — automatically loads skills from `~/.agents/skills` at session start
+- **Model switching** — change the Copilot model per-user at runtime
+- **Slash commands** for quick actions and session management
 - **User allowlist** — restrict access to specific Discord user IDs
 - **Auto-restart** via systemd (WSL + Linux)
 
@@ -16,10 +19,20 @@ A personal Discord bot backed by the [GitHub Copilot SDK](https://github.com/git
 | Command | Description |
 |---------|-------------|
 | `/ask <prompt>` | One-shot question — no session history, result is private (ephemeral) |
-| `/chat <message>` | Chat with persistent session history |
-| `/reset` | Clear your conversation history |
+| `/chat <message>` | Start a persistent conversation in a new thread (or continue in current thread/DM) |
+| `/reset` | Clear your conversation history and start fresh |
+| `/model list` | List all available Copilot models |
+| `/model set <model_id>` | Switch your active Copilot model (takes effect on next message) |
+| `/status` | Show Copilot auth status and CLI version |
+| `/history [count]` | Show your last N conversation exchanges (default 5, max 20) |
 | `/servers` | List all Discord servers this bot is installed in |
 | `/leave <guild_id>` | Remove the bot from a server by ID |
+
+### How `/chat` works
+
+- **In a channel** — creates a new public thread named `Copilot: {your message}`. The session is isolated to that thread. Just type in the thread — no `@mention` needed.
+- **Already in a thread** — continues the conversation in that thread's session.
+- **In a DM** — responds inline; the whole DM is one persistent session.
 
 ## Setup
 
@@ -49,8 +62,8 @@ cp .env.example .env
 DISCORD_TOKEN=          # Bot token from Discord Developer Portal → Bot
 DISCORD_APP_ID=         # Application ID from Discord Developer Portal → General Information
 DISCORD_GUILD_ID=       # Your Discord server ID (for slash command registration)
-DISCORD_FREE_CHANNELS=  # Optional: channel IDs where bot replies without @mention
-DISCORD_ALLOWED_USERS=  # Optional: user IDs allowed to use the bot (all others ignored)
+DISCORD_FREE_CHANNELS=  # Optional: comma-separated channel IDs where bot replies without @mention
+DISCORD_ALLOWED_USERS=  # Optional: comma-separated user IDs allowed to use the bot (all others ignored)
 ```
 
 **Getting IDs**: Enable Developer Mode in Discord (Settings → Advanced → Developer Mode), then right-click any server/channel/user to copy its ID.
@@ -60,7 +73,8 @@ DISCORD_ALLOWED_USERS=  # Optional: user IDs allowed to use the bot (all others 
 In the [Discord Developer Portal](https://discord.com/developers/applications), go to:
 **OAuth2 → URL Generator** → select scopes: `bot` + `applications.commands`
 
-Under Bot Permissions, select at minimum: **Send Messages**, **Read Message History**, **Use Slash Commands**.
+Under Bot Permissions, select at minimum:
+**Send Messages**, **Send Messages in Threads**, **Create Public Threads**, **Read Message History**, **Use Slash Commands**.
 
 Copy the generated URL and open it in a browser to invite the bot to your server.
 
@@ -70,13 +84,17 @@ Copy the generated URL and open it in a browser to invite the bot to your server
 npm run register
 ```
 
-Run this once (and again whenever you add new slash commands).
+Run this once (and again whenever you add or change slash commands).
 
 ### 6. Start the bot
 
 ```bash
 npm start
 ```
+
+## Skills
+
+The bot automatically loads user-scope skills from `~/.agents/skills` at session creation. Drop any `.yml` skill files there and they'll be available to Copilot in every conversation.
 
 ## Running as a Service (systemd / WSL)
 
@@ -111,15 +129,18 @@ sudo systemctl stop ai-assistant         # stop the bot
 ```
 src/
   index.ts              # Entry point — loads .env, starts bot
-  bot.ts                # Discord gateway client, command routing, message handling
-  copilot.ts            # Copilot SDK session management, truncation helper
-  commands.ts           # Slash command definitions
+  bot.ts                # Discord client, command routing, message & thread handling
+  copilot.ts            # SessionManager: Copilot SDK sessions, message queuing, model/skill loading
+  commands.ts           # Slash command definitions and CommandName union type
   handlers/
-    mention.ts          # Handles @mention and free-channel messages
+    mention.ts          # Handles @mentions, free-channel messages, and bot-owned thread messages
     slash/
-      ask.ts            # /ask handler
-      chat.ts           # /chat handler
+      ask.ts            # /ask handler (ephemeral, no history)
+      chat.ts           # /chat handler (thread creation, DM fallback)
       reset.ts          # /reset handler
+      model.ts          # /model list and /model set handlers
+      status.ts         # /status handler
+      history.ts        # /history handler
       servers.ts        # /servers handler
       leave.ts          # /leave handler
 scripts/
@@ -132,5 +153,6 @@ ai-assistant.service    # systemd unit file (edit before use — see above)
 ## Security Notes
 
 - The bot token and all credentials live only in `.env`, which is git-ignored and never committed.
-- Use `DISCORD_ALLOWED_USERS` to restrict the bot to your own Discord user ID — especially important if the bot has full tool access to your machine.
-- The bot has `approveAll` permissions — it will execute any tool Copilot requests. Only expose it to users you trust completely.
+- Use `DISCORD_ALLOWED_USERS` to restrict the bot to your own Discord user ID — especially important since the bot has full tool access to your machine.
+- The bot uses `approveAll` permissions — it will execute any tool Copilot requests without prompting. Only expose it to users you trust completely.
+- Thread sessions are isolated by thread ID, so different `/chat` conversations don't share context.
