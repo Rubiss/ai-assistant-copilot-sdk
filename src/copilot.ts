@@ -5,8 +5,10 @@ import { CopilotClient, CopilotSession, MCPServerConfig, approveAll } from "@git
 
 // Truncate long responses to Discord's 2000-char limit
 export function truncateForDiscord(text: string): string {
-  if (text.length <= 1990) return text;
-  return text.slice(0, 1990) + "\n…*(response truncated)*";
+  const suffix = "\n…*(response truncated)*"; // 24 chars
+  const max = 2000;
+  if (text.length <= max) return text;
+  return text.slice(0, max - suffix.length) + suffix;
 }
 
 /**
@@ -233,7 +235,7 @@ export class SessionManager {
     const tail = this.messageQueues.get(userId) ?? Promise.resolve();
     const next = tail.then(async () => {
       const session = await this.getOrCreateSession(userId);
-      const result = await session.sendAndWait({ prompt }, 5 * 60 * 1000); // 5-minute timeout
+      const result = await session.sendAndWait({ prompt }, parseInt(process.env.COPILOT_TIMEOUT_MS ?? "") || 10 * 60 * 1000); // default 10-minute timeout
       return result?.data?.content ?? "(no response)";
     });
     // Non-rejecting tail so errors don't permanently block the queue
