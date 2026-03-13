@@ -14,7 +14,6 @@
     "ai-assistant": "./dist/src/cli.js"
   },
   "scripts": {
-    "prepare": "npm run build",
     "start": "tsx src/index.ts",
     "build": "tsc",
     "register": "tsx scripts/register-commands.ts"
