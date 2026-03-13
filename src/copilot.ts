@@ -170,6 +170,101 @@ export class SessionManager {
     await session.setModel(model);
   }
 
+  async getCurrentModel(key: string): Promise<string | undefined> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.model.getCurrent();
+    return result.modelId;
+  }
+
+  // ── Agent management ────────────────────────────────────────────────────────
+
+  async listAgents(key: string): Promise<{ name: string; displayName: string; description: string }[]> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.agent.list();
+    return result.agents;
+  }
+
+  async getCurrentAgent(key: string): Promise<{ name: string; displayName: string; description: string } | null> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.agent.getCurrent();
+    return result.agent;
+  }
+
+  async selectAgent(key: string, name: string): Promise<{ name: string; displayName: string; description: string }> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.agent.select({ name });
+    return result.agent;
+  }
+
+  async deselectAgent(key: string): Promise<void> {
+    const session = await this.getOrCreateSession(key);
+    await session.rpc.agent.deselect();
+  }
+
+  // ── Session mode ─────────────────────────────────────────────────────────────
+
+  async getMode(key: string): Promise<"interactive" | "plan" | "autopilot"> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.mode.get();
+    return result.mode;
+  }
+
+  async setMode(key: string, mode: "interactive" | "plan" | "autopilot"): Promise<void> {
+    const session = await this.getOrCreateSession(key);
+    await session.rpc.mode.set({ mode });
+  }
+
+  // ── Compaction ───────────────────────────────────────────────────────────────
+
+  async compact(key: string): Promise<{ success: boolean; tokensRemoved: number; messagesRemoved: number }> {
+    const session = await this.getOrCreateSession(key);
+    return session.rpc.compaction.compact();
+  }
+
+  // ── Fleet ────────────────────────────────────────────────────────────────────
+
+  async startFleet(key: string, prompt?: string): Promise<boolean> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.fleet.start({ prompt });
+    return result.started;
+  }
+
+  // ── Plan management ──────────────────────────────────────────────────────────
+
+  async readPlan(key: string): Promise<{ exists: boolean; content: string | null; path: string | null }> {
+    const session = await this.getOrCreateSession(key);
+    return session.rpc.plan.read();
+  }
+
+  async updatePlan(key: string, content: string): Promise<void> {
+    const session = await this.getOrCreateSession(key);
+    await session.rpc.plan.update({ content });
+  }
+
+  async deletePlan(key: string): Promise<void> {
+    const session = await this.getOrCreateSession(key);
+    await session.rpc.plan.delete();
+  }
+
+  // ── Workspace management ─────────────────────────────────────────────────────
+
+  async listWorkspaceFiles(key: string): Promise<string[]> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.workspace.listFiles();
+    return result.files;
+  }
+
+  async readWorkspaceFile(key: string, filePath: string): Promise<string> {
+    const session = await this.getOrCreateSession(key);
+    const result = await session.rpc.workspace.readFile({ path: filePath });
+    return result.content;
+  }
+
+  async createWorkspaceFile(key: string, filePath: string, content: string): Promise<void> {
+    const session = await this.getOrCreateSession(key);
+    await session.rpc.workspace.createFile({ path: filePath, content });
+  }
+
   async resetSession(key: string): Promise<void> {
     const session = this.sessions.get(key);
     const storedSessionId = this.store.get(key);
