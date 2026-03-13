@@ -45,11 +45,19 @@ export function createBot(sessions: SessionManager): Client {
     }
   });
 
+  // Channel ID(s) where the bot responds to every message without needing a mention
+  const freeChannels = new Set(
+    (process.env.DISCORD_FREE_CHANNELS ?? "").split(",").map((s) => s.trim()).filter(Boolean)
+  );
+
   client.on(Events.MessageCreate, async (message) => {
-    // Ignore bots and messages that don't mention us
     if (message.author.bot) return;
     if (!client.user) return;
-    if (!message.mentions.has(client.user.id)) return;
+
+    const isMentioned = message.mentions.has(client.user.id);
+    const isFreeChannel = freeChannels.has(message.channelId);
+
+    if (!isMentioned && !isFreeChannel) return;
 
     await handleMention(message, client, sessions);
   });
