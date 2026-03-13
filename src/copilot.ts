@@ -50,7 +50,7 @@ export class SessionManager {
 
   async sendMessage(userId: string, prompt: string): Promise<string> {
     const session = await this.getOrCreateSession(userId);
-    const result = await session.sendAndWait({ prompt });
+    const result = await session.sendAndWait({ prompt }, 5 * 60 * 1000); // 5-minute timeout
     return result?.data?.content ?? "(no response)";
   }
 

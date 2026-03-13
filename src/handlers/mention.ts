@@ -18,11 +18,24 @@ export async function handleMention(
   }
 
   try {
-    // Show typing indicator while Copilot is thinking
+    // Keep typing indicator alive every 8s (Discord clears it after ~10s)
+    let typingInterval: ReturnType<typeof setInterval> | undefined;
     if ("sendTyping" in message.channel) {
       await message.channel.sendTyping();
+      typingInterval = setInterval(() => {
+        if ("sendTyping" in message.channel) {
+          message.channel.sendTyping().catch(() => {});
+        }
+      }, 8000);
     }
-    const response = await sessions.sendMessage(message.author.id, prompt);
+
+    let response: string;
+    try {
+      response = await sessions.sendMessage(message.author.id, prompt);
+    } finally {
+      clearInterval(typingInterval);
+    }
+
     await message.reply(truncateForDiscord(response));
   } catch (err) {
     console.error("[mention] Error:", err);
