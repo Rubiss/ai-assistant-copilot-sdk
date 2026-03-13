@@ -29,7 +29,7 @@ export class SessionManager {
     // Start creation and register the promise immediately so concurrent calls wait
     const creation = this.client
       .createSession({
-        model: "gpt-4o",
+        model: "claude-haiku-4.5",
         // Approve all tool/permission requests. This bot runs on a private server;
         // restrict access at the Discord server/channel level if needed.
         onPermissionRequest: approveAll,

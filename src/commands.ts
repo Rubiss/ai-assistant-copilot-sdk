@@ -24,6 +24,20 @@ export const commands = [
   new SlashCommandBuilder()
     .setName("reset")
     .setDescription("Clear your Copilot session history"),
+
+  new SlashCommandBuilder()
+    .setName("servers")
+    .setDescription("List all servers this bot is currently installed in"),
+
+  new SlashCommandBuilder()
+    .setName("leave")
+    .setDescription("Remove this bot from a server")
+    .addStringOption((opt) =>
+      opt
+        .setName("guild_id")
+        .setDescription("The server ID to leave (get IDs from /servers)")
+        .setRequired(true)
+    ),
 ];
 
-export type CommandName = "ask" | "chat" | "reset";
+export type CommandName = "ask" | "chat" | "reset" | "servers" | "leave";
