@@ -6,7 +6,7 @@ A personal Discord bot backed by the [GitHub Copilot SDK](https://github.com/git
 
 ```bash
 # Install directly from GitHub (no cloning required)
-npm install -g github:Rubiss/ai-assistant-copilot-sdk
+npm install -g --install-links github:Rubiss/ai-assistant-copilot-sdk
 
 # Run the setup wizard — creates ~/.ai-assistant/.env
 ai-assistant setup
@@ -20,12 +20,12 @@ ai-assistant install-service
 
 Pin a specific release:
 ```bash
-npm install -g github:Rubiss/ai-assistant-copilot-sdk#v1.0.0
+npm install -g --install-links github:Rubiss/ai-assistant-copilot-sdk#v1.0.4
 ```
 
 Update to latest:
 ```bash
-npm install -g github:Rubiss/ai-assistant-copilot-sdk
+npm install -g --install-links github:Rubiss/ai-assistant-copilot-sdk
 # or: ai-assistant update  (prints the command)
 ```
 

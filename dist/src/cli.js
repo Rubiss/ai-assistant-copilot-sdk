@@ -147,9 +147,9 @@ async function installService() {
 }
 function update() {
     console.log("To update to the latest version:");
-    console.log("  npm install -g github:Rubiss/ai-assistant-copilot-sdk");
+    console.log("  npm install -g --install-links github:Rubiss/ai-assistant-copilot-sdk");
     console.log("\nTo pin a specific version:");
-    console.log("  npm install -g github:Rubiss/ai-assistant-copilot-sdk#v1.0.0");
+    console.log("  npm install -g --install-links github:Rubiss/ai-assistant-copilot-sdk#v1.0.0");
 }
 function help() {
     console.log("Usage: ai-assistant <command>\n");

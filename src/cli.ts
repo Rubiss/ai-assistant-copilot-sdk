@@ -195,9 +195,9 @@ async function installService(): Promise<void> {
 
 function update(): void {
   console.log("To update to the latest version:");
-  console.log("  npm install -g github:Rubiss/ai-assistant-copilot-sdk");
+  console.log("  npm install -g --install-links github:Rubiss/ai-assistant-copilot-sdk");
   console.log("\nTo pin a specific version:");
-  console.log("  npm install -g github:Rubiss/ai-assistant-copilot-sdk#v1.0.0");
+  console.log("  npm install -g --install-links github:Rubiss/ai-assistant-copilot-sdk#v1.0.0");
 }
 
 function help(): void {
