@@ -1,7 +1,7 @@
 import { ThreadAutoArchiveDuration } from "discord.js";
 import { chunkForDiscord } from "../../copilot.js";
 import { resolveMessageLinks } from "../../utils/resolveMessageLinks.js";
-import { downloadImageAttachments } from "../../utils/downloadAttachments.js";
+import { downloadFileAttachments } from "../../utils/downloadAttachments.js";
 export async function handleChat(interaction, sessions) {
     const message = interaction.options.getString("message", true);
     const workspace = interaction.options.getString("workspace", false);
@@ -17,7 +17,7 @@ export async function handleChat(interaction, sessions) {
             let imagePaths;
             let cleanup;
             if (imageAttachment) {
-                const result = await downloadImageAttachments([imageAttachment]);
+                const result = await downloadFileAttachments([imageAttachment]);
                 cleanup = result.cleanup;
                 imagePaths = result.attachments.map((a) => ({ path: a.filePath, displayName: a.displayName }));
             }
@@ -58,7 +58,7 @@ export async function handleChat(interaction, sessions) {
         let imagePaths;
         let cleanup;
         if (imageAttachment) {
-            const result = await downloadImageAttachments([imageAttachment]);
+            const result = await downloadFileAttachments([imageAttachment]);
             cleanup = result.cleanup;
             imagePaths = result.attachments.map((a) => ({ path: a.filePath, displayName: a.displayName }));
         }

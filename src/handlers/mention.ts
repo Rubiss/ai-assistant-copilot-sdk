@@ -1,7 +1,7 @@
 import { Message, Client } from "discord.js";
 import { SessionManager, chunkForDiscord } from "../copilot.js";
 import { resolveMessageLinks } from "../utils/resolveMessageLinks.js";
-import { downloadImageAttachments } from "../utils/downloadAttachments.js";
+import { downloadFileAttachments } from "../utils/downloadAttachments.js";
 
 export async function handleMention(
   message: Message,
@@ -22,7 +22,7 @@ export async function handleMention(
 
   const key = sessionKey ?? message.author.id;
   const enrichedPrompt = await resolveMessageLinks(prompt, client, message.author.id);
-  const { attachments: images, cleanup } = await downloadImageAttachments(message.attachments.values());
+  const { attachments: images, cleanup } = await downloadFileAttachments(message.attachments.values());
   const imagePaths = images.map((a) => ({ path: a.filePath, displayName: a.displayName }));
 
   try {

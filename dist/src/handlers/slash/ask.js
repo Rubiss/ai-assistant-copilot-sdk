@@ -1,6 +1,6 @@
 import { chunkForDiscord } from "../../copilot.js";
 import { resolveMessageLinks } from "../../utils/resolveMessageLinks.js";
-import { downloadImageAttachments } from "../../utils/downloadAttachments.js";
+import { downloadFileAttachments } from "../../utils/downloadAttachments.js";
 export async function handleAsk(interaction, sessions) {
     const prompt = interaction.options.getString("prompt", true);
     const workspace = interaction.options.getString("workspace", false);
@@ -16,7 +16,7 @@ export async function handleAsk(interaction, sessions) {
             let imagePaths;
             let cleanup;
             if (imageAttachment) {
-                const result = await downloadImageAttachments([imageAttachment]);
+                const result = await downloadFileAttachments([imageAttachment]);
                 cleanup = result.cleanup;
                 imagePaths = result.attachments.map((a) => ({ path: a.filePath, displayName: a.displayName }));
             }

@@ -1,7 +1,7 @@
 import { ChatInputCommandInteraction, ThreadAutoArchiveDuration } from "discord.js";
 import { SessionManager, chunkForDiscord } from "../../copilot.js";
 import { resolveMessageLinks } from "../../utils/resolveMessageLinks.js";
-import { downloadImageAttachments } from "../../utils/downloadAttachments.js";
+import { downloadFileAttachments } from "../../utils/downloadAttachments.js";
 
 export async function handleChat(
   interaction: ChatInputCommandInteraction,
@@ -22,7 +22,7 @@ export async function handleChat(
       let imagePaths: Array<{ path: string; displayName?: string }> | undefined;
       let cleanup: (() => Promise<void>) | undefined;
       if (imageAttachment) {
-        const result = await downloadImageAttachments([imageAttachment]);
+        const result = await downloadFileAttachments([imageAttachment]);
         cleanup = result.cleanup;
         imagePaths = result.attachments.map((a) => ({ path: a.filePath, displayName: a.displayName }));
       }
@@ -64,7 +64,7 @@ export async function handleChat(
     let imagePaths: Array<{ path: string; displayName?: string }> | undefined;
     let cleanup: (() => Promise<void>) | undefined;
     if (imageAttachment) {
-      const result = await downloadImageAttachments([imageAttachment]);
+      const result = await downloadFileAttachments([imageAttachment]);
       cleanup = result.cleanup;
       imagePaths = result.attachments.map((a) => ({ path: a.filePath, displayName: a.displayName }));
     }

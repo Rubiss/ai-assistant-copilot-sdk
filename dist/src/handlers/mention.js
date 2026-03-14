@@ -1,6 +1,6 @@
 import { chunkForDiscord } from "../copilot.js";
 import { resolveMessageLinks } from "../utils/resolveMessageLinks.js";
-import { downloadImageAttachments } from "../utils/downloadAttachments.js";
+import { downloadFileAttachments } from "../utils/downloadAttachments.js";
 export async function handleMention(message, client, sessions, sessionKey // defaults to message.author.id; pass channelId for thread sessions
 ) {
     // Strip all @mentions of the bot and trim
@@ -12,7 +12,7 @@ export async function handleMention(message, client, sessions, sessionKey // def
     }
     const key = sessionKey ?? message.author.id;
     const enrichedPrompt = await resolveMessageLinks(prompt, client, message.author.id);
-    const { attachments: images, cleanup } = await downloadImageAttachments(message.attachments.values());
+    const { attachments: images, cleanup } = await downloadFileAttachments(message.attachments.values());
     const imagePaths = images.map((a) => ({ path: a.filePath, displayName: a.displayName }));
     try {
         // Keep typing indicator alive every 8s (Discord clears it after ~10s)
