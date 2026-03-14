@@ -353,9 +353,24 @@ export class SessionManager {
         // until their env vars are set and the session is reset.
         return result;
     }
-    /** Set the working directory for a session. Takes effect when the session is (re)created. */
+    /** Set the working directory for a session. Takes effect when the session is (re)created.
+     * Throws if the path is invalid, does not exist, or is not a directory.
+     * Symlinks are fully resolved so the stored path is always a stable canonical target. */
     setSessionWorkingDir(key, dir) {
-        this.workingDirOverrides.set(key, dir);
+        if (!dir || dir.includes("\0")) {
+            throw new Error("Invalid workspace path.");
+        }
+        let canonical;
+        try {
+            canonical = fs.realpathSync.native(path.resolve(dir));
+        }
+        catch {
+            throw new Error(`Workspace path does not exist: ${path.resolve(dir)}`);
+        }
+        if (!fs.statSync(canonical).isDirectory()) {
+            throw new Error(`Workspace path is not a directory: ${canonical}`);
+        }
+        this.workingDirOverrides.set(key, canonical);
     }
     /** Get the current working directory override for a session. */
     getSessionWorkingDir(key) {

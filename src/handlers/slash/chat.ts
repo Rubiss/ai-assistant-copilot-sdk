@@ -17,7 +17,10 @@ export async function handleChat(
       await interaction.editReply(truncateForDiscord(response));
     } catch (err) {
       console.error("[/chat DM] Error:", err);
-      const msg = "❌ Something went wrong talking to Copilot. Please try again.";
+      const isPathError = err instanceof Error && err.message.startsWith("Workspace path") || err instanceof Error && err.message === "Invalid workspace path.";
+      const msg = isPathError
+        ? `❌ Invalid workspace: ${(err as Error).message}`
+        : "❌ Something went wrong talking to Copilot. Please try again.";
       if (interaction.deferred) {
         await interaction.editReply(msg).catch(() => {});
       } else {
@@ -57,7 +60,10 @@ export async function handleChat(
     await interaction.editReply(`💬 ${thread.toString()}`);
   } catch (err) {
     console.error("[/chat] Error:", err);
-    const msg = "❌ Something went wrong talking to Copilot. Please try again.";
+    const isPathError = err instanceof Error && (err.message.startsWith("Workspace path") || err.message === "Invalid workspace path.");
+    const msg = isPathError
+      ? `❌ Invalid workspace: ${(err as Error).message}`
+      : "❌ Something went wrong talking to Copilot. Please try again.";
     if (interaction.deferred) {
       await interaction.editReply(msg).catch(() => {});
     } else {

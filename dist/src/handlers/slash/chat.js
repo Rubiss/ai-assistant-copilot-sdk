@@ -14,7 +14,10 @@ export async function handleChat(interaction, sessions) {
         }
         catch (err) {
             console.error("[/chat DM] Error:", err);
-            const msg = "❌ Something went wrong talking to Copilot. Please try again.";
+            const isPathError = err instanceof Error && err.message.startsWith("Workspace path") || err instanceof Error && err.message === "Invalid workspace path.";
+            const msg = isPathError
+                ? `❌ Invalid workspace: ${err.message}`
+                : "❌ Something went wrong talking to Copilot. Please try again.";
             if (interaction.deferred) {
                 await interaction.editReply(msg).catch(() => { });
             }
@@ -52,7 +55,10 @@ export async function handleChat(interaction, sessions) {
     }
     catch (err) {
         console.error("[/chat] Error:", err);
-        const msg = "❌ Something went wrong talking to Copilot. Please try again.";
+        const isPathError = err instanceof Error && (err.message.startsWith("Workspace path") || err.message === "Invalid workspace path.");
+        const msg = isPathError
+            ? `❌ Invalid workspace: ${err.message}`
+            : "❌ Something went wrong talking to Copilot. Please try again.";
         if (interaction.deferred) {
             await interaction.editReply(msg).catch(() => { });
         }
