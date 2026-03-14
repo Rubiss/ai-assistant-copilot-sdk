@@ -16,7 +16,8 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "build": "tsc",
-    "register": "tsx scripts/register-commands.ts"
+    "register": "tsx scripts/register-commands.ts",
+    "postinstall": "node dist/scripts/patch-deps.cjs"
   },
   "keywords": [],
   "author": "",
