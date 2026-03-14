@@ -1,6 +1,6 @@
 # Exclude dev/source files from npm pack
-src/
-scripts/
+/src/
+/scripts/
 .github/
 *.md
 !README.md
