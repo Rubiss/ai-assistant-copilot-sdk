@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "skills": {
+    "copilot-sdk": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "computedHash": "3265212ec108eb3967ac061bf501d5f019d1e1ffef1d1f043d5346d0e4fa5097"
+    },
+    "dependency-updater": {
+      "source": "softaworks/agent-toolkit",
+      "sourceType": "github",
+      "computedHash": "dc7f34bfa7a1371852fa6f640e14364c52f11fa8303d301ceeb2920623e92157"
+    },
+    "npm-git-install": {
+      "source": "supercent-io/skills-template",
+      "sourceType": "github",
+      "computedHash": "f33ac9bab1c7627a9f284980050177543ff96232e1fcda715abe40a6247e2d66"
+    },
+    "security-best-practices": {
+      "source": "supercent-io/skills-template",
+      "sourceType": "github",
+      "computedHash": "a8c825eb0f2d2d3381f93dad83ea531579445c5646b38be0170f4a782689cf4b"
+    },
+    "typescript-expert": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "f0f625132cf53116cb27725926e2c99f142861b9063d459938dd85fbf8e2bf61"
+    }
+  }
+}
