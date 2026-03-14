@@ -2,6 +2,30 @@ import { PermissionFlagsBits } from "discord.js";
 // Matches https://discord.com/channels/{guildId}/{channelId}/{messageId}
 const MESSAGE_URL_RE = /https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/channels\/(\d+)\/(\d+)\/(\d+)/g;
 /**
+ * Serialises Discord rich embeds (e.g. Sonarr / bot notifications) into
+ * quoted plain-text lines that can be included in the context block.
+ */
+function formatEmbeds(embeds) {
+    if (embeds.length === 0)
+        return "";
+    const blocks = embeds.map((embed) => {
+        const lines = [];
+        if (embed.author?.name)
+            lines.push(`Author: ${embed.author.name}`);
+        if (embed.title)
+            lines.push(`[Embed: ${embed.title}]`);
+        if (embed.description)
+            lines.push(...embed.description.split("\n"));
+        for (const field of embed.fields) {
+            lines.push(`${field.name}: ${field.value}`);
+        }
+        if (embed.footer?.text)
+            lines.push(`Footer: ${embed.footer.text}`);
+        return lines.flatMap((l) => l.split("\n")).map((l) => `> ${l}`).join("\n");
+    });
+    return blocks.join("\n> ---\n");
+}
+/**
  * Scans `content` for Discord message URLs, fetches each referenced message,
  * and returns the original content with a context block prepended.
  *
@@ -41,8 +65,12 @@ export async function resolveMessageLinks(content, client, requestingUserId) {
             const date = msg.createdAt.toISOString().split("T")[0];
             const author = msg.author.username;
             const channelName = "name" in channel ? channel.name : channelId;
-            const body = msg.content || "(no text content)";
-            const quotedBody = body.split("\n").map((line) => `> ${line}`).join("\n");
+            const textPart = msg.content
+                ? msg.content.split("\n").map((line) => `> ${line}`).join("\n")
+                : "";
+            const embedPart = formatEmbeds(msg.embeds);
+            const parts = [textPart, embedPart].filter(Boolean);
+            const quotedBody = parts.length > 0 ? parts.join("\n") : "> (no text content)";
             const attachmentNote = msg.attachments.size > 0
                 ? `\n> [+ ${msg.attachments.size} attachment(s)]`
                 : "";
