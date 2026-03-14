@@ -6,6 +6,5 @@
 !README.md
 .env*
 tsconfig.json
-*.service
 plans/
 node_modules/
