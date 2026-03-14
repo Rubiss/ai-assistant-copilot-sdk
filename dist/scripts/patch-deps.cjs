@@ -26,3 +26,37 @@ try {
 } catch (_) {
   // Non-fatal: file may not exist in all environments
 }
+
+// Heals @github/copilot/definitions/ when it is missing after an
+// `npm install -g --install-links` run. That flag uses a stricter tar
+// extractor that fails to create the directory before writing files into it,
+// producing TAR_ENTRY_ERROR ENOENT warnings and leaving the dir absent.
+const copilotPkg = path.resolve(
+  process.cwd(),
+  "node_modules/@github/copilot/package.json"
+);
+const defsDir = path.resolve(
+  process.cwd(),
+  "node_modules/@github/copilot/definitions"
+);
+
+try {
+  if (!fs.existsSync(defsDir)) {
+    const { execSync } = require("child_process");
+    const version = JSON.parse(fs.readFileSync(copilotPkg, "utf8")).version;
+    console.log(
+      `⚠️  @github/copilot/definitions/ missing — healing (v${version})…`
+    );
+    execSync(
+      `npm install --no-save --no-install-links --no-fund --no-audit --prefix="${process.cwd()}" "@github/copilot@${version}"`,
+      { stdio: "pipe" }
+    );
+    console.log("✅ Healed @github/copilot/definitions/");
+  }
+} catch (_) {
+  // Non-fatal: warn and move on; user can re-run without --install-links
+  console.warn(
+    "⚠️  Could not heal @github/copilot/definitions/. Re-install without --install-links:\n" +
+      "   npm install -g github:Rubiss/ai-assistant-copilot-sdk"
+  );
+}
