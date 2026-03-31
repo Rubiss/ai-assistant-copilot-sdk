@@ -18,8 +18,8 @@ export const commands = [
     )
     .addAttachmentOption((opt) =>
       opt
-        .setName("image")
-        .setDescription("An image for Copilot to analyze as context")
+        .setName("file")
+        .setDescription("A file (image, code, or text) for Copilot to analyze")
         .setRequired(false)
     ),
 
@@ -40,8 +40,8 @@ export const commands = [
     )
     .addAttachmentOption((opt) =>
       opt
-        .setName("image")
-        .setDescription("An image for Copilot to analyze as context")
+        .setName("file")
+        .setDescription("A file (image, code, or text) for Copilot to analyze")
         .setRequired(false)
     ),
 

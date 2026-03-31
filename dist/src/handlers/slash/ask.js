@@ -1,10 +1,11 @@
-import { chunkForDiscord } from "../../copilot.js";
+import { AttachmentBuilder } from "discord.js";
+import { prepareDiscordResponse } from "../../copilot.js";
 import { resolveMessageLinks } from "../../utils/resolveMessageLinks.js";
 import { downloadFileAttachments } from "../../utils/downloadAttachments.js";
 export async function handleAsk(interaction, sessions) {
     const prompt = interaction.options.getString("prompt", true);
     const workspace = interaction.options.getString("workspace", false);
-    const imageAttachment = interaction.options.getAttachment("image", false);
+    const fileAttachment = interaction.options.getAttachment("file", false);
     const tempKey = `ask_tmp_${interaction.user.id}_${Date.now()}`;
     try {
         await interaction.deferReply({ ephemeral: true });
@@ -15,8 +16,8 @@ export async function handleAsk(interaction, sessions) {
             const enrichedPrompt = await resolveMessageLinks(prompt, interaction.client, interaction.user.id);
             let imagePaths;
             let cleanup;
-            if (imageAttachment) {
-                const result = await downloadFileAttachments([imageAttachment]);
+            if (fileAttachment) {
+                const result = await downloadFileAttachments([fileAttachment]);
                 cleanup = result.cleanup;
                 imagePaths = result.attachments.map((a) => ({ path: a.filePath, displayName: a.displayName }));
             }
@@ -32,8 +33,9 @@ export async function handleAsk(interaction, sessions) {
             // Always clean up the temp session, even on error
             await sessions.resetSession(tempKey);
         }
-        const chunks = chunkForDiscord(response);
-        await interaction.editReply(chunks[0]);
+        const { chunks, file } = prepareDiscordResponse(response);
+        const files = file ? [new AttachmentBuilder(file.buffer, { name: file.name })] : [];
+        await interaction.editReply({ content: chunks[0], files });
         for (const chunk of chunks.slice(1)) {
             await interaction.followUp({ ephemeral: true, content: chunk });
         }

@@ -69,6 +69,43 @@ export function chunkForDiscord(text: string, maxLen = DISCORD_MAX): string[] {
 }
 
 /**
+ * Number of chunks beyond which the full response is also attached as a
+ * Markdown file so the reader doesn't have to piece together many messages.
+ */
+const FILE_ATTACHMENT_THRESHOLD = 3;
+
+export interface DiscordResponsePayload {
+  /** Text chunks that each fit within Discord's 2000-char limit. */
+  chunks: string[];
+  /**
+   * When the response is long enough to exceed {@link FILE_ATTACHMENT_THRESHOLD}
+   * chunks, the full text is provided here so it can be sent as a file
+   * attachment alongside the first chunk.
+   */
+  file?: { buffer: Buffer; name: string };
+}
+
+/**
+ * Prepares a Copilot response for sending to Discord.
+ * Short responses are returned as text chunks only.
+ * Longer responses also include the full text as a `.md` file buffer so the
+ * caller can attach it alongside the first text chunk.
+ */
+export function prepareDiscordResponse(text: string): DiscordResponsePayload {
+  const chunks = chunkForDiscord(text);
+  if (chunks.length <= FILE_ATTACHMENT_THRESHOLD) {
+    return { chunks };
+  }
+  return {
+    chunks: [chunks[0]],
+    file: {
+      buffer: Buffer.from(text, "utf-8"),
+      name: "response.md",
+    },
+  };
+}
+
+/**
  * Persists the mapping of Discord session keys (user ID or thread ID) to
  * Copilot session IDs so sessions can be resumed after a bot restart.
  *

@@ -1,5 +1,5 @@
-import { ChatInputCommandInteraction } from "discord.js";
-import { SessionManager, chunkForDiscord } from "../../copilot.js";
+import { AttachmentBuilder, ChatInputCommandInteraction } from "discord.js";
+import { SessionManager, prepareDiscordResponse } from "../../copilot.js";
 import { resolveMessageLinks } from "../../utils/resolveMessageLinks.js";
 import { downloadFileAttachments } from "../../utils/downloadAttachments.js";
 
@@ -9,7 +9,7 @@ export async function handleAsk(
 ): Promise<void> {
   const prompt = interaction.options.getString("prompt", true);
   const workspace = interaction.options.getString("workspace", false);
-  const imageAttachment = interaction.options.getAttachment("image", false);
+  const fileAttachment = interaction.options.getAttachment("file", false);
   const tempKey = `ask_tmp_${interaction.user.id}_${Date.now()}`;
 
   try {
@@ -22,8 +22,8 @@ export async function handleAsk(
 
       let imagePaths: Array<{ path: string; displayName?: string }> | undefined;
       let cleanup: (() => Promise<void>) | undefined;
-      if (imageAttachment) {
-        const result = await downloadFileAttachments([imageAttachment]);
+      if (fileAttachment) {
+        const result = await downloadFileAttachments([fileAttachment]);
         cleanup = result.cleanup;
         imagePaths = result.attachments.map((a) => ({ path: a.filePath, displayName: a.displayName }));
       }
@@ -39,8 +39,9 @@ export async function handleAsk(
       await sessions.resetSession(tempKey);
     }
 
-    const chunks = chunkForDiscord(response);
-    await interaction.editReply(chunks[0]);
+    const { chunks, file } = prepareDiscordResponse(response);
+    const files = file ? [new AttachmentBuilder(file.buffer, { name: file.name })] : [];
+    await interaction.editReply({ content: chunks[0], files });
     for (const chunk of chunks.slice(1)) {
       await interaction.followUp({ ephemeral: true, content: chunk });
     }
