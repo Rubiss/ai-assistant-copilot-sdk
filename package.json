@@ -25,7 +25,7 @@
   "dependencies": {
     "@github/copilot-sdk": "^0.2.0",
     "discord.js": "^14.26.0",
-    "dotenv": "^17.3.1"
+    "dotenv": "^17.4.1"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
