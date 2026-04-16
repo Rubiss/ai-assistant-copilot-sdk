@@ -194,6 +194,135 @@ SRE automation plugin for Docker monitoring, webhooks, and incident management.
 
 **Status mapping:** `_level: "ok"` → `resolved`, everything else → `firing`
 
+### Servarr (Sonarr / Radarr / Prowlarr / Lidarr / Readarr)
+
+**Endpoint:** `POST /webhooks/servarr`
+
+All Servarr apps use the same webhook payload format.
+
+**Health event:**
+
+```json
+{
+  "eventType": "Health",
+  "instanceName": "Sonarr",
+  "isHealthy": false,
+  "messages": [
+    {
+      "type": "Error",
+      "message": "No indexers available with RSS sync enabled",
+      "source": "IndexerRssCheck",
+      "wikiUrl": "https://wiki.servarr.com/sonarr/system#no-indexers-available-with-rss-sync-enabled",
+      "level": 2
+    }
+  ]
+}
+```
+
+**ApplicationUpdate event:**
+
+```json
+{
+  "eventType": "ApplicationUpdate",
+  "instanceName": "Radarr",
+  "previousVersion": "5.2.6.8376",
+  "newVersion": "5.3.6.8612"
+}
+```
+
+**Alert event types** (all others are ignored):
+- `Health` → firing alert (severity from `messages[].type` and `messages[].level`: `Error`/level 2=critical, `Warning`/level 1=warning, else info; `type` is checked first)
+- `HealthRestored` → resolved alert
+- `ApplicationUpdate` → info-level firing alert
+
+**Ignored events:** `Grab`, `Download`, `Rename`, `MovieAdded`, `SeriesAdd`, `EpisodeFileDelete`, and all other notification-type events.
+
+### Seerr (Overseerr / Jellyseerr)
+
+**Endpoint:** `POST /webhooks/seerr`
+
+```json
+{
+  "notification_type": "MEDIA_FAILED",
+  "event": "Media Failed",
+  "subject": "Failed Request - The Matrix (1999)",
+  "message": "The request for The Matrix (1999) has failed.",
+  "media": {
+    "media_type": "movie",
+    "tmdbId": "603",
+    "tvdbId": "",
+    "status": "UNKNOWN",
+    "status4k": "UNKNOWN"
+  },
+  "request": {
+    "request_id": "42",
+    "requestedBy_username": "rubiss"
+  }
+}
+```
+
+**Alert types** (all others are ignored):
+- `MEDIA_FAILED` → warning-level firing alert
+
+**Ignored types:** `MEDIA_PENDING`, `MEDIA_APPROVED`, `MEDIA_AVAILABLE`, `MEDIA_DECLINED`, `TEST_NOTIFICATION`, and all others.
+
+### Uptime Kuma
+
+**Endpoint:** `POST /webhooks/uptime-kuma`
+
+Uses Uptime Kuma's default webhook body format (do not customize the payload template).
+
+**DOWN event:**
+
+```json
+{
+  "heartbeat": {
+    "status": 0,
+    "msg": "Connection failed",
+    "time": "2024-06-01T12:00:00.000Z",
+    "ping": null,
+    "duration": 300,
+    "important": true
+  },
+  "monitor": {
+    "id": 7,
+    "name": "Plex",
+    "url": "http://plex:32400/web",
+    "type": "http"
+  },
+  "msg": "Plex is DOWN"
+}
+```
+
+**UP event:**
+
+```json
+{
+  "heartbeat": {
+    "status": 1,
+    "msg": "200 - OK",
+    "time": "2024-06-01T12:05:00.000Z",
+    "ping": 42,
+    "duration": 300,
+    "important": true
+  },
+  "monitor": {
+    "id": 7,
+    "name": "Plex",
+    "url": "http://plex:32400/web",
+    "type": "http"
+  },
+  "msg": "Plex is UP"
+}
+```
+
+**Status mapping:**
+- `0` (DOWN) → critical firing alert
+- `1` (UP) → info resolved alert
+- `2` (PENDING), `3` (MAINTENANCE) → ignored
+
+**Dedup:** By `monitor.id` — a DOWN followed by an UP for the same monitor auto-resolves the incident.
+
 ## Docker Workspace Setup
 
 The `workspacePath` setting points to a directory containing your Docker Compose files. The SRE plugin uses this to:

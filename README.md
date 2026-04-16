@@ -24,10 +24,13 @@ Chat with Copilot from Discord, monitor Docker infrastructure, receive alerts fr
               └────────────────────┘
 
 External:
-  Alertmanager ──► POST /webhooks/alertmanager ──► Worker
-  Grafana      ──► POST /webhooks/grafana      ──► Worker
-  InfluxDB     ──► POST /webhooks/influxdb     ──► Worker
-  Docker       ──► Event stream                ──► Worker
+  Alertmanager ──► POST /webhooks/alertmanager  ──► Worker
+  Grafana      ──► POST /webhooks/grafana       ──► Worker
+  InfluxDB     ──► POST /webhooks/influxdb      ──► Worker
+  Servarr      ──► POST /webhooks/servarr       ──► Worker
+  Seerr        ──► POST /webhooks/seerr         ──► Worker
+  Uptime Kuma  ──► POST /webhooks/uptime-kuma   ──► Worker
+  Docker       ──► Event stream                 ──► Worker
 ```
 
 The **bot process** connects to Discord and handles all user interactions. The **worker process** runs an HTTP server for webhooks, watches Docker events, runs scheduled reports, and manages incidents. Both processes share a single SQLite database (`~/.ai-assistant/state/ops.db`) for durable state.
@@ -36,7 +39,7 @@ The **bot process** connects to Discord and handles all user interactions. The *
 
 - **Interactive AI chat** — GitHub Copilot SDK with thread-based sessions, persistent history, and model switching
 - **MCP tool support** — filesystem, Docker, web search, and custom MCP servers via `.vscode/mcp.json`
-- **Incident management** — webhooks from Alertmanager/Grafana/InfluxDB create incidents with timeline tracking and Discord threads
+- **Incident management** — webhooks from Alertmanager, Grafana, InfluxDB, Servarr, Seerr, and Uptime Kuma create incidents with timeline tracking and Discord threads
 - **Docker monitoring** — real-time container event watching (die, OOM, restart, health changes) with automatic incident creation
 - **Operator commands** — acknowledge, annotate, and manage incidents via Discord slash commands and threads
 - **Approval workflows** — destructive actions (e.g., container restarts) require operator approval via Discord buttons
@@ -188,6 +191,9 @@ SRE automation plugin — contributes to both bot and worker processes.
 | `POST /webhooks/alertmanager` | Prometheus Alertmanager |
 | `POST /webhooks/grafana` | Grafana Alerting |
 | `POST /webhooks/influxdb` | InfluxDB Checks |
+| `POST /webhooks/servarr` | Sonarr, Radarr, Prowlarr, Lidarr, Readarr |
+| `POST /webhooks/seerr` | Overseerr / Jellyseerr |
+| `POST /webhooks/uptime-kuma` | Uptime Kuma |
 
 **Docker watcher**: Monitors container events (die, OOM, restart, health status changes) and creates incidents automatically.
 
@@ -197,7 +203,7 @@ SRE automation plugin — contributes to both bot and worker processes.
 
 ## Webhook Setup
 
-The worker process runs an HTTP server on `127.0.0.1:8780` by default.
+The worker process runs an HTTP server on `0.0.0.0:8780` by default (all interfaces). Use a firewall or reverse proxy to restrict access in production.
 
 ### HMAC Verification
 
@@ -247,6 +253,35 @@ receivers:
 In Grafana → Alerting → Contact points, add a webhook:
 - **URL**: `http://127.0.0.1:8780/webhooks/grafana`
 - **HTTP Method**: POST
+
+### InfluxDB Checks
+
+In InfluxDB → Alerts → Notification Endpoints, create an HTTP endpoint:
+- **URL**: `http://host.docker.internal:8780/webhooks/influxdb`
+- **Method**: POST
+- Then create a Notification Rule that sends check statuses to this endpoint
+
+### Servarr (Sonarr / Radarr / Prowlarr / Lidarr / Readarr)
+
+In each app → Settings → Connect → add a Webhook:
+- **URL**: `http://host.docker.internal:8780/webhooks/servarr` (adjust host for your setup)
+- **Method**: POST
+- **Events**: Select **On Health Issue**, **On Health Restored**, and **On Application Update** only. Notification events (Grab, Download, etc.) are ignored by the normalizer.
+
+### Seerr (Overseerr / Jellyseerr)
+
+In Settings → Notifications → Webhook:
+- **Webhook URL**: `http://host.docker.internal:8780/webhooks/seerr`
+- **Notification Types**: Enable **Media Failed** only (other types are ignored)
+
+### Uptime Kuma
+
+In Settings → Notifications → Setup Notification:
+- **Type**: Webhook
+- **Post URL**: `http://host.docker.internal:8780/webhooks/uptime-kuma`
+- **Content Type**: `application/json`
+- Leave the body as default — the normalizer expects the standard `{ heartbeat, monitor, msg }` payload
+- Check **Apply on all existing monitors** to enable for all monitors
 
 ## Systemd Services
 
@@ -345,7 +380,7 @@ src/
       index.ts                    # Plugin registration
     sre-docker-host/              # SRE automation plugin
       commands.ts                 # /ops, /incident, /report commands
-      webhooks.ts                 # Alertmanager/Grafana/InfluxDB normalizers
+      webhooks.ts                 # Webhook normalizers (Alertmanager, Grafana, InfluxDB, Servarr, Seerr, Uptime Kuma)
       dockerWatcher.ts            # Docker event stream consumer
       diagnostics.ts              # Container diagnostics collector
       restart.ts                  # Safe restart with cooldown + approval
@@ -395,4 +430,4 @@ rm -rf ~/.ai-assistant
 - Destructive worker actions (container restart) require operator approval via Discord buttons.
 - Thread sessions are isolated by thread ID.
 - Webhook HMAC verification is supported for all endpoints.
-- The worker HTTP server binds to `127.0.0.1` only — use a reverse proxy for external access.
+- The worker HTTP server binds to `0.0.0.0` by default — use a firewall or reverse proxy to restrict access. HMAC verification is supported via the `hmacSecretEnv` route option but is not enabled by default on any endpoint.
