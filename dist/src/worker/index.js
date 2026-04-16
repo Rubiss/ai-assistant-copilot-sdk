@@ -7,9 +7,17 @@ import { closeDb } from "../app/store/db.js";
 import { createHttpServer, stopHttpServer } from "./httpServer.js";
 import { Scheduler } from "./scheduler.js";
 import { registerHealthContext } from "./health.js";
+import { chatCorePlugin } from "../plugins/chat-core/index.js";
+import { sreDockerHostPlugin } from "../plugins/sre-docker-host/index.js";
+const BUILTIN_PLUGINS = [chatCorePlugin, sreDockerHostPlugin];
 export async function startWorker() {
     loadEnv("worker");
     const config = loadRuntimeConfig();
+    for (const plugin of BUILTIN_PLUGINS) {
+        if (config.plugins[plugin.name]?.enabled !== false) {
+            registry.registerPlugin(plugin);
+        }
+    }
     await registry.initAll({ configDir: CONFIG_DIR, processType: "worker" }, Object.fromEntries(Object.entries(config.plugins).map(([name, cfg]) => [name, cfg])));
     console.log("⚙️  Worker process started.");
     console.log(`   Config dir: ${CONFIG_DIR}`);
@@ -23,7 +31,16 @@ export async function startWorker() {
     const scheduler = new Scheduler();
     scheduler.start();
     registerHealthContext({ scheduler, httpListening: true });
-    // TODO: Start watchers (Phase 6)
+    // Start watchers (Docker event streams, etc.)
+    for (const watcher of registry.getAllWatchers("worker")) {
+        try {
+            console.log(`[watcher] Starting: ${watcher.name}`);
+            watcher.start();
+        }
+        catch (err) {
+            console.error(`[watcher] Failed to start ${watcher.name}:`, err);
+        }
+    }
     // Keep process alive
     const keepAlive = setInterval(() => { }, 60_000);
     async function shutdown(signal) {

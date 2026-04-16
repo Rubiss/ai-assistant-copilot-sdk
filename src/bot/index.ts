@@ -4,6 +4,10 @@ import { registry } from "../app/plugins/registry.js";
 import { CONFIG_DIR } from "../app/config/env.js";
 import { SessionManager } from "../app/copilot/interactiveSessions.js";
 import { createBot } from "./discordClient.js";
+import { chatCorePlugin } from "../plugins/chat-core/index.js";
+import { sreDockerHostPlugin } from "../plugins/sre-docker-host/index.js";
+
+const BUILTIN_PLUGINS = [chatCorePlugin, sreDockerHostPlugin];
 
 export async function startBot(): Promise<void> {
   loadEnv("bot");
@@ -11,8 +15,11 @@ export async function startBot(): Promise<void> {
   const config = loadRuntimeConfig();
   const token = env("DISCORD_TOKEN", true);
 
-  // TODO: Register plugins here (Phase 3)
-  // Plugins will be registered based on config.plugins entries
+  for (const plugin of BUILTIN_PLUGINS) {
+    if (config.plugins[plugin.name]?.enabled !== false) {
+      registry.registerPlugin(plugin);
+    }
+  }
 
   await registry.initAll(
     { configDir: CONFIG_DIR, processType: "bot" },
