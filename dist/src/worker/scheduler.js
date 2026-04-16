@@ -25,6 +25,9 @@ export class Scheduler {
         }
         console.log(`[scheduler] Started ${schedules.length} schedule(s).`);
     }
+    get activeCount() {
+        return this.timers.size;
+    }
     stop() {
         if (!this.running)
             return;
