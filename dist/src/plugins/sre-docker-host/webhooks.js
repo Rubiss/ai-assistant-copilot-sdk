@@ -77,6 +77,74 @@ export function normalizeInflux(payload) {
         },
     ];
 }
+const SERVARR_ALERT_EVENTS = new Set(["Health", "HealthRestored", "ApplicationUpdate"]);
+export function mapServarrSeverity(level, type) {
+    if (type === "Error" || level === 2)
+        return "critical";
+    if (type === "Warning" || level === 1)
+        return "warning";
+    return "info";
+}
+export function normalizeServarr(payload) {
+    if (!SERVARR_ALERT_EVENTS.has(payload.eventType))
+        return [];
+    const instance = payload.instanceName ?? "servarr";
+    const source = `servarr:${instance.toLowerCase()}`;
+    if (payload.eventType === "ApplicationUpdate") {
+        return [
+            {
+                source,
+                source_id: `${source}:update:${payload.newVersion ?? "unknown"}`,
+                service_name: instance,
+                title: `${instance} updated from ${payload.previousVersion ?? "?"} to ${payload.newVersion ?? "?"}`,
+                severity: "info",
+                status: "firing",
+                metadata: {
+                    eventType: payload.eventType,
+                    previousVersion: payload.previousVersion,
+                    newVersion: payload.newVersion,
+                    appUrl: payload.appUrl,
+                },
+            },
+        ];
+    }
+    // Health / HealthRestored
+    const isResolved = payload.eventType === "HealthRestored" || payload.isHealthy === true;
+    if (!payload.messages?.length) {
+        return [
+            {
+                source,
+                source_id: `${source}:health:general`,
+                service_name: instance,
+                title: isResolved
+                    ? `${instance} health restored`
+                    : `${instance} health issue`,
+                severity: "warning",
+                status: isResolved ? "resolved" : "firing",
+                metadata: {
+                    eventType: payload.eventType,
+                    reason: payload.reason,
+                    appUrl: payload.appUrl,
+                },
+            },
+        ];
+    }
+    return payload.messages.map((msg, idx) => ({
+        source,
+        source_id: `${source}:health:${msg.source ?? idx}`,
+        service_name: instance,
+        title: msg.message || `${instance} health issue`,
+        severity: mapServarrSeverity(msg.level, msg.type),
+        status: isResolved ? "resolved" : "firing",
+        metadata: {
+            eventType: payload.eventType,
+            reason: payload.reason,
+            messageSource: msg.source,
+            wikiUrl: msg.wikiUrl,
+            appUrl: payload.appUrl,
+        },
+    }));
+}
 /* ------------------------------------------------------------------ */
 /*  Route factories                                                    */
 /* ------------------------------------------------------------------ */
@@ -116,6 +184,28 @@ export function createInfluxRoute(config) {
         path: "/webhooks/influxdb",
         handler: async (request, reply) => {
             const alerts = normalizeInflux(request.body);
+            for (const alert of alerts) {
+                processAlert(alert, { alertChannelId: config.alertChannelId });
+            }
+            reply
+                .code(200)
+                .send({ received: alerts.length });
+        },
+    };
+}
+export function createServarrRoute(config) {
+    return {
+        method: "POST",
+        path: "/webhooks/servarr",
+        handler: async (request, reply) => {
+            const payload = request.body;
+            const alerts = normalizeServarr(payload);
+            if (alerts.length === 0) {
+                reply
+                    .code(200)
+                    .send({ received: 0, skipped: payload.eventType });
+                return;
+            }
             for (const alert of alerts) {
                 processAlert(alert, { alertChannelId: config.alertChannelId });
             }

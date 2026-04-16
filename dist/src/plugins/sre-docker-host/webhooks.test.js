@@ -15,7 +15,7 @@ import "../../app/store/migrations/v001-initial-tables.js";
 import * as incidents from "../../app/store/incidents.js";
 import * as outbox from "../../app/store/outbox.js";
 import { processAlert } from "../../worker/incidentEngine.js";
-import { normalizeAlertmanager, normalizeGrafana, normalizeInflux, mapAlertmanagerSeverity, mapGrafanaSeverity, mapInfluxSeverity, } from "./webhooks.js";
+import { normalizeAlertmanager, normalizeGrafana, normalizeInflux, normalizeServarr, mapAlertmanagerSeverity, mapGrafanaSeverity, mapInfluxSeverity, mapServarrSeverity, } from "./webhooks.js";
 /* ------------------------------------------------------------------ */
 /*  Fixtures                                                           */
 /* ------------------------------------------------------------------ */
@@ -365,5 +365,123 @@ describe("webhook → incident engine integration", () => {
         expect(incident.severity).toBe("critical");
         const messages = outbox.claimPending(10);
         expect(messages.some((m) => m.channel_id === "ch-influx")).toBe(true);
+    });
+    it("should create incident from Servarr Health alert", () => {
+        const alerts = normalizeServarr({
+            eventType: "Health",
+            instanceName: "Sonarr",
+            reason: "HealthCheck",
+            messages: [
+                {
+                    type: "Warning",
+                    message: "Some indexers are unavailable due to recent errors.",
+                    source: "Indexer",
+                    wikiUrl: "https://wiki.servarr.com/sonarr/health",
+                    level: 1,
+                },
+            ],
+            isHealthy: false,
+            appVersion: "4.0.0.692",
+            appUrl: "http://sonarr:8989",
+        });
+        expect(alerts).toHaveLength(1);
+        expect(alerts[0].source).toBe("servarr:sonarr");
+        expect(alerts[0].source_id).toBe("servarr:sonarr:health:Indexer");
+        expect(alerts[0].severity).toBe("warning");
+        expect(alerts[0].status).toBe("firing");
+        expect(alerts[0].title).toBe("Some indexers are unavailable due to recent errors.");
+        const result = processAlert(alerts[0], { alertChannelId: "ch-servarr" });
+        expect(result.created).toBe(true);
+        const incident = incidents.getIncident(result.incidentId);
+        expect(incident.source).toBe("servarr:sonarr");
+        expect(incident.service_name).toBe("Sonarr");
+        const messages = outbox.claimPending(10);
+        expect(messages.some((m) => m.channel_id === "ch-servarr")).toBe(true);
+    });
+    it("should resolve incident from Servarr HealthRestored", () => {
+        // Create firing first
+        const firing = normalizeServarr({
+            eventType: "Health",
+            instanceName: "Radarr",
+            messages: [{ type: "Error", message: "Disk space low", source: "Disk", level: 2 }],
+            isHealthy: false,
+        });
+        const { incidentId } = processAlert(firing[0], { alertChannelId: "ch-servarr" });
+        outbox.claimPending(10); // drain outbox
+        // Now resolve
+        const resolved = normalizeServarr({
+            eventType: "HealthRestored",
+            instanceName: "Radarr",
+            messages: [{ type: "Error", message: "Disk space low", source: "Disk", level: 2 }],
+            isHealthy: true,
+        });
+        expect(resolved[0].status).toBe("resolved");
+        const result = processAlert(resolved[0], { alertChannelId: "ch-servarr" });
+        expect(result.created).toBe(false);
+        expect(result.incidentId).toBe(incidentId);
+        const incident = incidents.getIncident(incidentId);
+        expect(incident.status).toBe("resolved");
+    });
+    it("should handle Servarr Health with multiple messages", () => {
+        const alerts = normalizeServarr({
+            eventType: "Health",
+            instanceName: "Prowlarr",
+            messages: [
+                { type: "Warning", message: "Indexer A failed", source: "IndexerA", level: 1 },
+                { type: "Error", message: "Indexer B failed", source: "IndexerB", level: 2 },
+            ],
+            isHealthy: false,
+        });
+        expect(alerts).toHaveLength(2);
+        expect(alerts[0].severity).toBe("warning");
+        expect(alerts[1].severity).toBe("critical");
+        expect(alerts[0].source_id).toBe("servarr:prowlarr:health:IndexerA");
+        expect(alerts[1].source_id).toBe("servarr:prowlarr:health:IndexerB");
+    });
+    it("should skip non-alert Servarr events (Grab, Download, etc.)", () => {
+        expect(normalizeServarr({ eventType: "Grab" })).toHaveLength(0);
+        expect(normalizeServarr({ eventType: "Download" })).toHaveLength(0);
+        expect(normalizeServarr({ eventType: "Rename" })).toHaveLength(0);
+        expect(normalizeServarr({ eventType: "MovieAdded" })).toHaveLength(0);
+        expect(normalizeServarr({ eventType: "SeriesAdd" })).toHaveLength(0);
+        expect(normalizeServarr({ eventType: "Test" })).toHaveLength(0);
+    });
+    it("should normalize Servarr ApplicationUpdate", () => {
+        const alerts = normalizeServarr({
+            eventType: "ApplicationUpdate",
+            instanceName: "Sonarr",
+            previousVersion: "4.0.0.690",
+            newVersion: "4.0.0.692",
+        });
+        expect(alerts).toHaveLength(1);
+        expect(alerts[0].severity).toBe("info");
+        expect(alerts[0].title).toContain("4.0.0.690");
+        expect(alerts[0].title).toContain("4.0.0.692");
+    });
+    it("should handle Servarr Health with no messages array", () => {
+        const alerts = normalizeServarr({
+            eventType: "Health",
+            instanceName: "Bazarr",
+            isHealthy: false,
+        });
+        expect(alerts).toHaveLength(1);
+        expect(alerts[0].title).toBe("Bazarr health issue");
+        expect(alerts[0].status).toBe("firing");
+    });
+});
+describe("Servarr severity mapping", () => {
+    it("should map Error/level 2 to critical", () => {
+        expect(mapServarrSeverity(2, "Error")).toBe("critical");
+        expect(mapServarrSeverity(2, undefined)).toBe("critical");
+        expect(mapServarrSeverity(undefined, "Error")).toBe("critical");
+    });
+    it("should map Warning/level 1 to warning", () => {
+        expect(mapServarrSeverity(1, "Warning")).toBe("warning");
+        expect(mapServarrSeverity(1, undefined)).toBe("warning");
+        expect(mapServarrSeverity(undefined, "Warning")).toBe("warning");
+    });
+    it("should default to info", () => {
+        expect(mapServarrSeverity(0, "Info")).toBe("info");
+        expect(mapServarrSeverity(undefined, undefined)).toBe("info");
     });
 });
