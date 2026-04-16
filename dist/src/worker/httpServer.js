@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { registry } from "../app/plugins/registry.js";
 import { logAudit } from "../app/store/audit.js";
 import { getHealthStatus } from "./health.js";
-const DEFAULT_HOST = "127.0.0.1";
+const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_PORT = 8780;
 function verifyHmac(secret, body, signature) {
     const expected = "sha256=" + createHmac("sha256", secret).update(body).digest("hex");

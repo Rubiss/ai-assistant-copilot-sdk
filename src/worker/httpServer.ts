@@ -12,7 +12,7 @@ declare module "fastify" {
   }
 }
 
-const DEFAULT_HOST = "127.0.0.1";
+const DEFAULT_HOST = "0.0.0.0";
 const DEFAULT_PORT = 8780;
 
 function verifyHmac(secret: string, body: Buffer, signature: string): boolean {
