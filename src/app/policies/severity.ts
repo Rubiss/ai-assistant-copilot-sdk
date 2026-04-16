@@ -11,6 +11,7 @@ const DEFAULT_MAPPINGS: SeverityMapping[] = [
     source: "alertmanager",
     mappings: {
       critical: "critical",
+      error: "critical",
       warning: "warning",
       info: "info",
       none: "info",

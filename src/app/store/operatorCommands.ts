@@ -51,11 +51,17 @@ export function claimPending(limit: number = 10): OperatorCommand[] {
     `).all(limit) as CommandRow[];
     if (rows.length === 0) return [];
     const ids = rows.map((r) => r.id);
-    db.prepare(`
+    const result = db.prepare(`
       UPDATE operator_commands SET status = 'claimed', claimed_at = ?
-      WHERE id IN (${ids.map(() => "?").join(",")})
+      WHERE id IN (${ids.map(() => "?").join(",")}) AND status = 'pending'
     `).run(now, ...ids);
-    return rows.map((r) => rowToCommand({ ...r, status: "claimed", claimed_at: now }));
+    if (result.changes === 0) return [];
+    // Re-read the actually claimed rows
+    const claimed = db.prepare(`
+      SELECT * FROM operator_commands
+      WHERE id IN (${ids.map(() => "?").join(",")}) AND status = 'claimed' AND claimed_at = ?
+    `).all(...ids, now) as CommandRow[];
+    return claimed.map((r) => rowToCommand(r));
   })();
 }
 

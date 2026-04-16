@@ -3,6 +3,7 @@ const DEFAULT_MAPPINGS = [
         source: "alertmanager",
         mappings: {
             critical: "critical",
+            error: "critical",
             warning: "warning",
             info: "info",
             none: "info",

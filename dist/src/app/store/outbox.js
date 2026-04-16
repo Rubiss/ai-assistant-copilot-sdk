@@ -23,12 +23,19 @@ export function claimPending(limit = 10) {
         if (rows.length === 0)
             return [];
         const ids = rows.map((r) => r.id);
-        db.prepare(`
+        const result = db.prepare(`
       UPDATE notifications_outbox
       SET status = 'claimed', claimed_at = ?, attempts = attempts + 1
-      WHERE id IN (${ids.map(() => "?").join(",")})
+      WHERE id IN (${ids.map(() => "?").join(",")}) AND status = 'pending'
     `).run(now, ...ids);
-        return rows.map((r) => rowToMessage({ ...r, status: "claimed", claimed_at: now, attempts: r.attempts + 1 }));
+        if (result.changes === 0)
+            return [];
+        // Re-read the actually claimed rows to avoid returning stale data
+        const claimed = db.prepare(`
+      SELECT * FROM notifications_outbox
+      WHERE id IN (${ids.map(() => "?").join(",")}) AND status = 'claimed' AND claimed_at = ?
+    `).all(...ids, now);
+        return claimed.map((r) => rowToMessage(r));
     })();
 }
 export function markDelivered(id) {

@@ -9,8 +9,9 @@ export interface OutboxPublisherOptions {
 
 export class OutboxPublisher {
   private client: Client;
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private timer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
+  private polling = false;
   private pollIntervalMs: number;
 
   constructor(client: Client, options: OutboxPublisherOptions = {}) {
@@ -22,21 +23,33 @@ export class OutboxPublisher {
     if (this.running) return;
     this.running = true;
     console.log(`[outbox] Publisher started (poll every ${this.pollIntervalMs}ms)`);
-    // Do an initial poll immediately
-    this.poll().catch((err) => console.error("[outbox] Poll error:", err));
-    this.timer = setInterval(() => {
-      this.poll().catch((err) => console.error("[outbox] Poll error:", err));
-    }, this.pollIntervalMs);
+    this.scheduleNextPoll(0);
   }
 
   stop(): void {
     if (!this.running) return;
     this.running = false;
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
     }
     console.log("[outbox] Publisher stopped.");
+  }
+
+  private scheduleNextPoll(delayMs: number): void {
+    if (!this.running) return;
+    this.timer = setTimeout(async () => {
+      if (this.polling) return;
+      this.polling = true;
+      try {
+        await this.poll();
+      } catch (err) {
+        console.error("[outbox] Poll error:", err);
+      } finally {
+        this.polling = false;
+        this.scheduleNextPoll(this.pollIntervalMs);
+      }
+    }, delayMs);
   }
 
   private async poll(): Promise<void> {
@@ -120,7 +133,7 @@ export class OutboxPublisher {
       throw new Error(`Channel ${msg.channel_id} not found or not text-based`);
     }
 
-    const textChannel = channel as TextChannel;
+    const sendable = channel as TextChannel;
     const formatted = this.formatMessage(msg);
     const payload = msg.payload as Record<string, unknown>;
 
@@ -131,7 +144,8 @@ export class OutboxPublisher {
       const embedTitle = embeds[0]?.title;
       const threadName = (embedTitle ?? (formatted.content as string) ?? "Alert").slice(0, 100);
 
-      const sent = await textChannel.send(formatted as Parameters<TextChannel["send"]>[0]);
+      // Thread creation happens on the sent Message, not the Channel
+      const sent = await sendable.send(formatted as Parameters<TextChannel["send"]>[0]);
       const thread = await sent.startThread({
         name: threadName,
         autoArchiveDuration: 1440,
@@ -147,16 +161,18 @@ export class OutboxPublisher {
       return;
     }
 
-    // If we have a thread_id, send to the thread
+    // If we have a thread_id, send to the thread (may be ThreadChannel, not TextChannel)
     if (msg.thread_id) {
       const thread = await this.client.channels.fetch(msg.thread_id);
       if (thread && "send" in thread) {
-        await (thread as TextChannel).send(formatted as Parameters<TextChannel["send"]>[0]);
+        await (thread as unknown as Pick<TextChannel, "send">).send(
+          formatted as Parameters<TextChannel["send"]>[0],
+        );
         return;
       }
     }
 
     // Default: send to channel
-    await textChannel.send(formatted as Parameters<TextChannel["send"]>[0]);
+    await sendable.send(formatted as Parameters<TextChannel["send"]>[0]);
   }
 }

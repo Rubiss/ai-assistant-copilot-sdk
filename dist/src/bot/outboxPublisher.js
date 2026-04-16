@@ -4,6 +4,7 @@ export class OutboxPublisher {
     client;
     timer = null;
     running = false;
+    polling = false;
     pollIntervalMs;
     constructor(client, options = {}) {
         this.client = client;
@@ -14,21 +15,36 @@ export class OutboxPublisher {
             return;
         this.running = true;
         console.log(`[outbox] Publisher started (poll every ${this.pollIntervalMs}ms)`);
-        // Do an initial poll immediately
-        this.poll().catch((err) => console.error("[outbox] Poll error:", err));
-        this.timer = setInterval(() => {
-            this.poll().catch((err) => console.error("[outbox] Poll error:", err));
-        }, this.pollIntervalMs);
+        this.scheduleNextPoll(0);
     }
     stop() {
         if (!this.running)
             return;
         this.running = false;
         if (this.timer) {
-            clearInterval(this.timer);
+            clearTimeout(this.timer);
             this.timer = null;
         }
         console.log("[outbox] Publisher stopped.");
+    }
+    scheduleNextPoll(delayMs) {
+        if (!this.running)
+            return;
+        this.timer = setTimeout(async () => {
+            if (this.polling)
+                return;
+            this.polling = true;
+            try {
+                await this.poll();
+            }
+            catch (err) {
+                console.error("[outbox] Poll error:", err);
+            }
+            finally {
+                this.polling = false;
+                this.scheduleNextPoll(this.pollIntervalMs);
+            }
+        }, delayMs);
     }
     async poll() {
         const messages = claimPending(10);
@@ -103,7 +119,7 @@ export class OutboxPublisher {
         if (!channel || !("send" in channel)) {
             throw new Error(`Channel ${msg.channel_id} not found or not text-based`);
         }
-        const textChannel = channel;
+        const sendable = channel;
         const formatted = this.formatMessage(msg);
         const payload = msg.payload;
         // If this is an alert and no thread exists, create one
@@ -112,7 +128,8 @@ export class OutboxPublisher {
             const embeds = Array.isArray(formatted.embeds) ? formatted.embeds : [];
             const embedTitle = embeds[0]?.title;
             const threadName = (embedTitle ?? formatted.content ?? "Alert").slice(0, 100);
-            const sent = await textChannel.send(formatted);
+            // Thread creation happens on the sent Message, not the Channel
+            const sent = await sendable.send(formatted);
             const thread = await sent.startThread({
                 name: threadName,
                 autoArchiveDuration: 1440,
@@ -129,7 +146,7 @@ export class OutboxPublisher {
             }
             return;
         }
-        // If we have a thread_id, send to the thread
+        // If we have a thread_id, send to the thread (may be ThreadChannel, not TextChannel)
         if (msg.thread_id) {
             const thread = await this.client.channels.fetch(msg.thread_id);
             if (thread && "send" in thread) {
@@ -138,6 +155,6 @@ export class OutboxPublisher {
             }
         }
         // Default: send to channel
-        await textChannel.send(formatted);
+        await sendable.send(formatted);
     }
 }

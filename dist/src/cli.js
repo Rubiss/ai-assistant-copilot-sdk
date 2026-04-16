@@ -251,9 +251,8 @@ async function startAllCmd() {
     process.chdir(CONFIG_DIR);
     const { startBot } = await import("./bot/index.js");
     const { startWorker } = await import("./worker/index.js");
-    // Start both — worker first (no Discord gateway dependency), then bot
-    await startWorker();
-    await startBot();
+    // Start both concurrently — both are long-running, await keeps process alive
+    await Promise.all([startWorker(), startBot()]);
 }
 function update() {
     console.log("To update to the latest version:");

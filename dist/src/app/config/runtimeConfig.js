@@ -15,7 +15,15 @@ export function loadRuntimeConfig() {
         fs.writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n");
         return structuredClone(DEFAULT_CONFIG);
     }
-    const raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    let raw;
+    try {
+        raw = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+    }
+    catch (err) {
+        console.error(`[config] Failed to parse ${configPath}: ${err instanceof Error ? err.message : err}`);
+        console.error("[config] Using default configuration. Fix config.json and restart.");
+        return structuredClone(DEFAULT_CONFIG);
+    }
     const validated = validateRuntimeConfig(raw);
     // Merge: ensure every default plugin exists in the loaded config
     const merged = {
