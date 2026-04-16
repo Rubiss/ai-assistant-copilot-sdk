@@ -1,12 +1,12 @@
 import { processAlert } from "../../worker/incidentEngine.js";
-function mapAlertmanagerSeverity(severity) {
+export function mapAlertmanagerSeverity(severity) {
     if (severity === "critical" || severity === "error")
         return "critical";
     if (severity === "warning")
         return "warning";
     return "info";
 }
-function normalizeAlertmanager(payload) {
+export function normalizeAlertmanager(payload) {
     return payload.alerts.map((alert) => ({
         source: "alertmanager",
         source_id: `alertmanager:${alert.fingerprint}`,
@@ -24,14 +24,14 @@ function normalizeAlertmanager(payload) {
         },
     }));
 }
-function mapGrafanaSeverity(severity) {
+export function mapGrafanaSeverity(severity) {
     if (severity === "critical" || severity === "error")
         return "critical";
     if (severity === "warning")
         return "warning";
     return "info";
 }
-function normalizeGrafana(payload) {
+export function normalizeGrafana(payload) {
     return payload.alerts.map((alert) => ({
         source: "grafana",
         source_id: `grafana:${alert.fingerprint}`,
@@ -50,14 +50,14 @@ function normalizeGrafana(payload) {
         },
     }));
 }
-function mapInfluxSeverity(level) {
+export function mapInfluxSeverity(level) {
     if (level === "crit")
         return "critical";
     if (level === "warn")
         return "warning";
     return "info";
 }
-function normalizeInflux(payload) {
+export function normalizeInflux(payload) {
     const status = payload._level === "ok" ? "resolved" : "firing";
     return [
         {

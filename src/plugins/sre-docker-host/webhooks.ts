@@ -20,7 +20,7 @@ interface AlertmanagerPayload {
   }>;
 }
 
-function mapAlertmanagerSeverity(
+export function mapAlertmanagerSeverity(
   severity: string | undefined,
 ): "critical" | "warning" | "info" {
   if (severity === "critical" || severity === "error") return "critical";
@@ -28,7 +28,7 @@ function mapAlertmanagerSeverity(
   return "info";
 }
 
-function normalizeAlertmanager(payload: AlertmanagerPayload): NormalizedAlert[] {
+export function normalizeAlertmanager(payload: AlertmanagerPayload): NormalizedAlert[] {
   return payload.alerts.map((alert) => ({
     source: "alertmanager",
     source_id: `alertmanager:${alert.fingerprint}`,
@@ -66,7 +66,7 @@ interface GrafanaPayload {
   }>;
 }
 
-function mapGrafanaSeverity(
+export function mapGrafanaSeverity(
   severity: string | undefined,
 ): "critical" | "warning" | "info" {
   if (severity === "critical" || severity === "error") return "critical";
@@ -74,7 +74,7 @@ function mapGrafanaSeverity(
   return "info";
 }
 
-function normalizeGrafana(payload: GrafanaPayload): NormalizedAlert[] {
+export function normalizeGrafana(payload: GrafanaPayload): NormalizedAlert[] {
   return payload.alerts.map((alert) => ({
     source: "grafana",
     source_id: `grafana:${alert.fingerprint}`,
@@ -108,7 +108,7 @@ interface InfluxPayload {
   _type: string;
 }
 
-function mapInfluxSeverity(
+export function mapInfluxSeverity(
   level: string,
 ): "critical" | "warning" | "info" {
   if (level === "crit") return "critical";
@@ -116,7 +116,7 @@ function mapInfluxSeverity(
   return "info";
 }
 
-function normalizeInflux(payload: InfluxPayload): NormalizedAlert[] {
+export function normalizeInflux(payload: InfluxPayload): NormalizedAlert[] {
   const status: "firing" | "resolved" =
     payload._level === "ok" ? "resolved" : "firing";
 
