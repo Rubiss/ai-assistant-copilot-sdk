@@ -14,7 +14,7 @@ jobs:
   release:
     # Skip the push-triggered run when this workflow itself pushed the tag
     if: github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: write
     steps:
