@@ -9,7 +9,7 @@ permissions:
 jobs:
   dependabot:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'Rubiss/ai-assistant-copilot-sdk'
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'Rubiss-Projects/ai-assistant-copilot-sdk'
     steps:
       - name: Dependabot metadata
         id: metadata
