@@ -354,7 +354,7 @@ export class SessionManager {
   async getCurrentAgent(key: string): Promise<{ name: string; displayName: string; description: string } | null> {
     const session = await this.getOrCreateSession(key);
     const result = await session.rpc.agent.getCurrent();
-    return result.agent;
+    return result.agent ?? null;
   }
 
   async selectAgent(key: string, name: string): Promise<{ name: string; displayName: string; description: string }> {
@@ -372,8 +372,7 @@ export class SessionManager {
 
   async getMode(key: string): Promise<"interactive" | "plan" | "autopilot"> {
     const session = await this.getOrCreateSession(key);
-    const result = await session.rpc.mode.get();
-    return result.mode;
+    return session.rpc.mode.get();
   }
 
   async setMode(key: string, mode: "interactive" | "plan" | "autopilot"): Promise<void> {
@@ -417,19 +416,19 @@ export class SessionManager {
 
   async listWorkspaceFiles(key: string): Promise<string[]> {
     const session = await this.getOrCreateSession(key);
-    const result = await session.rpc.workspace.listFiles();
+    const result = await session.rpc.workspaces.listFiles();
     return result.files;
   }
 
   async readWorkspaceFile(key: string, filePath: string): Promise<string> {
     const session = await this.getOrCreateSession(key);
-    const result = await session.rpc.workspace.readFile({ path: filePath });
+    const result = await session.rpc.workspaces.readFile({ path: filePath });
     return result.content;
   }
 
   async createWorkspaceFile(key: string, filePath: string, content: string): Promise<void> {
     const session = await this.getOrCreateSession(key);
-    await session.rpc.workspace.createFile({ path: filePath, content });
+    await session.rpc.workspaces.createFile({ path: filePath, content });
   }
 
   async resetSession(key: string): Promise<void> {

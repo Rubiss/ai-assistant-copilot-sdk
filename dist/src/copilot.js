@@ -311,7 +311,7 @@ export class SessionManager {
     async getCurrentAgent(key) {
         const session = await this.getOrCreateSession(key);
         const result = await session.rpc.agent.getCurrent();
-        return result.agent;
+        return result.agent ?? null;
     }
     async selectAgent(key, name) {
         const session = await this.getOrCreateSession(key);
@@ -325,8 +325,7 @@ export class SessionManager {
     // ── Session mode ─────────────────────────────────────────────────────────────
     async getMode(key) {
         const session = await this.getOrCreateSession(key);
-        const result = await session.rpc.mode.get();
-        return result.mode;
+        return session.rpc.mode.get();
     }
     async setMode(key, mode) {
         const session = await this.getOrCreateSession(key);
@@ -359,17 +358,17 @@ export class SessionManager {
     // ── Workspace management ─────────────────────────────────────────────────────
     async listWorkspaceFiles(key) {
         const session = await this.getOrCreateSession(key);
-        const result = await session.rpc.workspace.listFiles();
+        const result = await session.rpc.workspaces.listFiles();
         return result.files;
     }
     async readWorkspaceFile(key, filePath) {
         const session = await this.getOrCreateSession(key);
-        const result = await session.rpc.workspace.readFile({ path: filePath });
+        const result = await session.rpc.workspaces.readFile({ path: filePath });
         return result.content;
     }
     async createWorkspaceFile(key, filePath, content) {
         const session = await this.getOrCreateSession(key);
-        await session.rpc.workspace.createFile({ path: filePath, content });
+        await session.rpc.workspaces.createFile({ path: filePath, content });
     }
     async resetSession(key) {
         const session = this.sessions.get(key);
