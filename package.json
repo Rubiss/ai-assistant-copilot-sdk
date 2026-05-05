@@ -24,7 +24,7 @@
   "license": "ISC",
   "dependencies": {
     "@github/copilot-sdk": "^0.3.0",
-    "discord.js": "^14.26.3",
+    "discord.js": "^14.26.4",
     "dotenv": "^17.4.2"
   },
   "devDependencies": {
