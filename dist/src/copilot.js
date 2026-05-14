@@ -3,6 +3,10 @@ import os from "os";
 import path from "path";
 import { CopilotClient, approveAll } from "@github/copilot-sdk";
 const DISCORD_MAX = 1990; // Leave headroom for code-fence close/reopen overhead
+function isSessionNotFoundError(err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return /Session not found:/i.test(message);
+}
 /**
  * Splits text into chunks that each fit within Discord's 2000-char message limit.
  * Splits at paragraph → newline → word boundaries to avoid mid-word cuts.
@@ -197,6 +201,8 @@ export class SessionManager {
     sessions = new Map();
     // Stores in-flight creation promises to prevent duplicate session creation (TOCTOU fix)
     pending = new Map();
+    // Serializes session-touching operations per key so stale-session recovery can't race itself
+    sessionOperationQueues = new Map();
     // Serializes concurrent sendMessage calls per session to prevent state corruption
     messageQueues = new Map();
     // Persists Discord key → Copilot session ID across restarts
@@ -258,17 +264,61 @@ export class SessionManager {
         this.pending.set(key, creation);
         return creation;
     }
+    async evictCachedSession(key, session) {
+        if (this.sessions.get(key) === session) {
+            this.sessions.delete(key);
+        }
+        await session.disconnect().catch((err) => console.warn(`[SessionManager] Failed to disconnect stale session ${session.sessionId}:`, err));
+    }
+    async withLiveSession(key, operation) {
+        return this.enqueueSessionOperation(key, async () => {
+            const session = await this.getOrCreateSession(key);
+            return this.runWithSessionRecovery(key, session, operation);
+        });
+    }
+    async withExistingLiveSession(key, operation) {
+        return this.enqueueSessionOperation(key, async () => {
+            const session = this.sessions.get(key);
+            if (!session)
+                return null;
+            return this.runWithSessionRecovery(key, session, operation);
+        });
+    }
+    enqueueSessionOperation(key, operation) {
+        const tail = this.sessionOperationQueues.get(key) ?? Promise.resolve();
+        const next = tail.catch(() => { }).then(operation);
+        const queueTail = next.catch(() => { });
+        this.sessionOperationQueues.set(key, queueTail);
+        queueTail.finally(() => {
+            if (this.sessionOperationQueues.get(key) === queueTail) {
+                this.sessionOperationQueues.delete(key);
+            }
+        });
+        return next;
+    }
+    async runWithSessionRecovery(key, session, operation) {
+        try {
+            return await operation(session);
+        }
+        catch (err) {
+            if (!isSessionNotFoundError(err))
+                throw err;
+            console.warn(`[SessionManager] Cached session ${session.sessionId} for ${key} was not found by Copilot; evicting stale session and reinitializing.`);
+            await this.evictCachedSession(key, session);
+            const resumed = await this.getOrCreateSession(key);
+            return operation(resumed);
+        }
+    }
     async sendMessage(userId, prompt, imagePaths) {
         const tail = this.messageQueues.get(userId) ?? Promise.resolve();
         const next = tail.then(async () => {
-            const session = await this.getOrCreateSession(userId);
             const attachments = imagePaths?.map((a) => ({
                 type: "file",
                 path: a.path,
                 ...(a.displayName ? { displayName: a.displayName } : {}),
             }));
-            const result = await session.sendAndWait({ prompt, ...(attachments?.length ? { attachments } : {}) }, parseInt(process.env.COPILOT_TIMEOUT_MS ?? "") || 10 * 60 * 1000 // default 10-minute timeout
-            );
+            const result = await this.withLiveSession(userId, (session) => session.sendAndWait({ prompt, ...(attachments?.length ? { attachments } : {}) }, parseInt(process.env.COPILOT_TIMEOUT_MS ?? "") || 10 * 60 * 1000 // default 10-minute timeout
+            ));
             return result?.data?.content ?? "(no response)";
         });
         // Non-rejecting tail so errors don't permanently block the queue
@@ -284,91 +334,72 @@ export class SessionManager {
         return { status, authStatus };
     }
     async getHistory(userId) {
-        const session = this.sessions.get(userId);
-        if (!session)
-            return null;
-        return session.getMessages();
+        return this.withExistingLiveSession(userId, (session) => session.getMessages());
     }
     async listModels() {
         await this.client.start(); // listModels() requires an active connection; start() is idempotent
         return this.client.listModels();
     }
     async setModel(userId, model) {
-        const session = await this.getOrCreateSession(userId);
-        await session.setModel(model);
+        await this.withLiveSession(userId, (session) => session.setModel(model));
     }
     async getCurrentModel(key) {
-        const session = await this.getOrCreateSession(key);
-        const result = await session.rpc.model.getCurrent();
+        const result = await this.withLiveSession(key, (session) => session.rpc.model.getCurrent());
         return result.modelId;
     }
     // ── Agent management ────────────────────────────────────────────────────────
     async listAgents(key) {
-        const session = await this.getOrCreateSession(key);
-        const result = await session.rpc.agent.list();
+        const result = await this.withLiveSession(key, (session) => session.rpc.agent.list());
         return result.agents;
     }
     async getCurrentAgent(key) {
-        const session = await this.getOrCreateSession(key);
-        const result = await session.rpc.agent.getCurrent();
+        const result = await this.withLiveSession(key, (session) => session.rpc.agent.getCurrent());
         return result.agent ?? null;
     }
     async selectAgent(key, name) {
-        const session = await this.getOrCreateSession(key);
-        const result = await session.rpc.agent.select({ name });
+        const result = await this.withLiveSession(key, (session) => session.rpc.agent.select({ name }));
         return result.agent;
     }
     async deselectAgent(key) {
-        const session = await this.getOrCreateSession(key);
-        await session.rpc.agent.deselect();
+        await this.withLiveSession(key, (session) => session.rpc.agent.deselect());
     }
     // ── Session mode ─────────────────────────────────────────────────────────────
     async getMode(key) {
-        const session = await this.getOrCreateSession(key);
-        return session.rpc.mode.get();
+        return this.withLiveSession(key, (session) => session.rpc.mode.get());
     }
     async setMode(key, mode) {
-        const session = await this.getOrCreateSession(key);
-        await session.rpc.mode.set({ mode });
+        await this.withLiveSession(key, (session) => session.rpc.mode.set({ mode }));
     }
     // ── Compaction ───────────────────────────────────────────────────────────────
     async compact(key) {
-        const session = await this.getOrCreateSession(key);
-        return session.rpc.history.compact();
+        return this.withLiveSession(key, (session) => session.rpc.history.compact());
     }
     // ── Fleet ────────────────────────────────────────────────────────────────────
     async startFleet(key, prompt) {
-        const session = await this.getOrCreateSession(key);
-        const result = await session.rpc.fleet.start({ prompt });
+        const result = await this.withLiveSession(key, (session) => session.rpc.fleet.start({ prompt }));
         return result.started;
     }
     // ── Plan management ──────────────────────────────────────────────────────────
     async readPlan(key) {
-        const session = await this.getOrCreateSession(key);
-        return session.rpc.plan.read();
+        return this.withLiveSession(key, (session) => session.rpc.plan.read());
     }
     async updatePlan(key, content) {
-        const session = await this.getOrCreateSession(key);
-        await session.rpc.plan.update({ content });
+        await this.withLiveSession(key, (session) => session.rpc.plan.update({ content }));
     }
     async deletePlan(key) {
-        const session = await this.getOrCreateSession(key);
-        await session.rpc.plan.delete();
+        await this.withLiveSession(key, (session) => session.rpc.plan.delete());
     }
     // ── Workspace management ─────────────────────────────────────────────────────
     async listWorkspaceFiles(key) {
-        const session = await this.getOrCreateSession(key);
-        const result = await session.rpc.workspaces.listFiles();
+        const result = await this.withLiveSession(key, (session) => session.rpc.workspaces.listFiles());
         return result.files;
     }
     async readWorkspaceFile(key, filePath) {
-        const session = await this.getOrCreateSession(key);
-        const result = await session.rpc.workspaces.readFile({ path: filePath });
+        const result = await this.withLiveSession(key, (session) => session.rpc.workspaces.readFile({ path: filePath }));
         return result.content;
     }
     async createWorkspaceFile(key, filePath, content) {
-        const session = await this.getOrCreateSession(key);
-        await session.rpc.workspaces.createFile({ path: filePath, content });
+        await this.withLiveSession(key, (session) => session.rpc.workspaces.createFile({ path: filePath, content }));
     }
     async resetSession(key) {
         const session = this.sessions.get(key);
@@ -376,6 +407,7 @@ export class SessionManager {
         // Remove from all in-memory structures first so new requests start fresh
         this.sessions.delete(key);
         this.pending.delete(key);
+        this.sessionOperationQueues.delete(key);
         this.messageQueues.delete(key);
         this.store.delete(key);
         // Preserve working dir and MCP overrides across reset so users don't have
@@ -464,6 +496,7 @@ export class SessionManager {
         const allSessions = Array.from(this.sessions.values());
         this.sessions.clear();
         this.pending.clear();
+        this.sessionOperationQueues.clear();
         // disconnect() preserves session data on disk for resume on next start
         await Promise.all(allSessions.map((s) => s.disconnect().catch((err) => console.error("[SessionManager] Shutdown error:", err))));
         await this.client.stop();

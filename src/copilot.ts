@@ -5,6 +5,11 @@ import { CopilotClient, CopilotSession, MCPServerConfig, approveAll } from "@git
 
 const DISCORD_MAX = 1990; // Leave headroom for code-fence close/reopen overhead
 
+function isSessionNotFoundError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /Session not found:/i.test(message);
+}
+
 /**
  * Splits text into chunks that each fit within Discord's 2000-char message limit.
  * Splits at paragraph → newline → word boundaries to avoid mid-word cuts.
@@ -216,6 +221,8 @@ export class SessionManager {
   private sessions: Map<string, CopilotSession> = new Map();
   // Stores in-flight creation promises to prevent duplicate session creation (TOCTOU fix)
   private pending: Map<string, Promise<CopilotSession>> = new Map();
+  // Serializes session-touching operations per key so stale-session recovery can't race itself
+  private sessionOperationQueues: Map<string, Promise<unknown>> = new Map();
   // Serializes concurrent sendMessage calls per session to prevent state corruption
   private messageQueues: Map<string, Promise<unknown>> = new Map();
   // Persists Discord key → Copilot session ID across restarts
@@ -288,6 +295,69 @@ export class SessionManager {
     return creation;
   }
 
+  private async evictCachedSession(key: string, session: CopilotSession): Promise<void> {
+    if (this.sessions.get(key) === session) {
+      this.sessions.delete(key);
+    }
+
+    await session.disconnect().catch((err) =>
+      console.warn(`[SessionManager] Failed to disconnect stale session ${session.sessionId}:`, err)
+    );
+  }
+
+  private async withLiveSession<T>(
+    key: string,
+    operation: (session: CopilotSession) => Promise<T>
+  ): Promise<T> {
+    return this.enqueueSessionOperation(key, async () => {
+      const session = await this.getOrCreateSession(key);
+      return this.runWithSessionRecovery(key, session, operation);
+    });
+  }
+
+  private async withExistingLiveSession<T>(
+    key: string,
+    operation: (session: CopilotSession) => Promise<T>
+  ): Promise<T | null> {
+    return this.enqueueSessionOperation(key, async () => {
+      const session = this.sessions.get(key);
+      if (!session) return null;
+      return this.runWithSessionRecovery(key, session, operation);
+    });
+  }
+
+  private enqueueSessionOperation<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const tail = this.sessionOperationQueues.get(key) ?? Promise.resolve();
+    const next = tail.catch(() => {}).then(operation);
+    const queueTail = next.catch(() => {});
+    this.sessionOperationQueues.set(key, queueTail);
+    queueTail.finally(() => {
+      if (this.sessionOperationQueues.get(key) === queueTail) {
+        this.sessionOperationQueues.delete(key);
+      }
+    });
+    return next;
+  }
+
+  private async runWithSessionRecovery<T>(
+    key: string,
+    session: CopilotSession,
+    operation: (session: CopilotSession) => Promise<T>
+  ): Promise<T> {
+    try {
+      return await operation(session);
+    } catch (err) {
+      if (!isSessionNotFoundError(err)) throw err;
+
+      console.warn(
+        `[SessionManager] Cached session ${session.sessionId} for ${key} was not found by Copilot; evicting stale session and reinitializing.`
+      );
+      await this.evictCachedSession(key, session);
+      const resumed = await this.getOrCreateSession(key);
+      return operation(resumed);
+    }
+  }
+
   async sendMessage(
     userId: string,
     prompt: string,
@@ -295,15 +365,16 @@ export class SessionManager {
   ): Promise<string> {
     const tail = this.messageQueues.get(userId) ?? Promise.resolve();
     const next = tail.then(async () => {
-      const session = await this.getOrCreateSession(userId);
       const attachments = imagePaths?.map((a) => ({
         type: "file" as const,
         path: a.path,
         ...(a.displayName ? { displayName: a.displayName } : {}),
       }));
-      const result = await session.sendAndWait(
-        { prompt, ...(attachments?.length ? { attachments } : {}) },
-        parseInt(process.env.COPILOT_TIMEOUT_MS ?? "") || 10 * 60 * 1000 // default 10-minute timeout
+      const result = await this.withLiveSession(userId, (session) =>
+        session.sendAndWait(
+          { prompt, ...(attachments?.length ? { attachments } : {}) },
+          parseInt(process.env.COPILOT_TIMEOUT_MS ?? "") || 10 * 60 * 1000 // default 10-minute timeout
+        )
       );
       return result?.data?.content ?? "(no response)";
     });
@@ -322,9 +393,7 @@ export class SessionManager {
   }
 
   async getHistory(userId: string) {
-    const session = this.sessions.get(userId);
-    if (!session) return null;
-    return session.getMessages();
+    return this.withExistingLiveSession(userId, (session) => session.getMessages());
   }
 
   async listModels() {
@@ -333,102 +402,90 @@ export class SessionManager {
   }
 
   async setModel(userId: string, model: string): Promise<void> {
-    const session = await this.getOrCreateSession(userId);
-    await session.setModel(model);
+    await this.withLiveSession(userId, (session) => session.setModel(model));
   }
 
   async getCurrentModel(key: string): Promise<string | undefined> {
-    const session = await this.getOrCreateSession(key);
-    const result = await session.rpc.model.getCurrent();
+    const result = await this.withLiveSession(key, (session) => session.rpc.model.getCurrent());
     return result.modelId;
   }
 
   // ── Agent management ────────────────────────────────────────────────────────
 
   async listAgents(key: string): Promise<{ name: string; displayName: string; description: string }[]> {
-    const session = await this.getOrCreateSession(key);
-    const result = await session.rpc.agent.list();
+    const result = await this.withLiveSession(key, (session) => session.rpc.agent.list());
     return result.agents;
   }
 
   async getCurrentAgent(key: string): Promise<{ name: string; displayName: string; description: string } | null> {
-    const session = await this.getOrCreateSession(key);
-    const result = await session.rpc.agent.getCurrent();
+    const result = await this.withLiveSession(key, (session) => session.rpc.agent.getCurrent());
     return result.agent ?? null;
   }
 
   async selectAgent(key: string, name: string): Promise<{ name: string; displayName: string; description: string }> {
-    const session = await this.getOrCreateSession(key);
-    const result = await session.rpc.agent.select({ name });
+    const result = await this.withLiveSession(key, (session) => session.rpc.agent.select({ name }));
     return result.agent;
   }
 
   async deselectAgent(key: string): Promise<void> {
-    const session = await this.getOrCreateSession(key);
-    await session.rpc.agent.deselect();
+    await this.withLiveSession(key, (session) => session.rpc.agent.deselect());
   }
 
   // ── Session mode ─────────────────────────────────────────────────────────────
 
   async getMode(key: string): Promise<"interactive" | "plan" | "autopilot"> {
-    const session = await this.getOrCreateSession(key);
-    return session.rpc.mode.get();
+    return this.withLiveSession(key, (session) => session.rpc.mode.get());
   }
 
   async setMode(key: string, mode: "interactive" | "plan" | "autopilot"): Promise<void> {
-    const session = await this.getOrCreateSession(key);
-    await session.rpc.mode.set({ mode });
+    await this.withLiveSession(key, (session) => session.rpc.mode.set({ mode }));
   }
 
   // ── Compaction ───────────────────────────────────────────────────────────────
 
   async compact(key: string): Promise<{ success: boolean; tokensRemoved: number; messagesRemoved: number }> {
-    const session = await this.getOrCreateSession(key);
-    return session.rpc.history.compact();
+    return this.withLiveSession(key, (session) => session.rpc.history.compact());
   }
 
   // ── Fleet ────────────────────────────────────────────────────────────────────
 
   async startFleet(key: string, prompt?: string): Promise<boolean> {
-    const session = await this.getOrCreateSession(key);
-    const result = await session.rpc.fleet.start({ prompt });
+    const result = await this.withLiveSession(key, (session) => session.rpc.fleet.start({ prompt }));
     return result.started;
   }
 
   // ── Plan management ──────────────────────────────────────────────────────────
 
   async readPlan(key: string): Promise<{ exists: boolean; content: string | null; path: string | null }> {
-    const session = await this.getOrCreateSession(key);
-    return session.rpc.plan.read();
+    return this.withLiveSession(key, (session) => session.rpc.plan.read());
   }
 
   async updatePlan(key: string, content: string): Promise<void> {
-    const session = await this.getOrCreateSession(key);
-    await session.rpc.plan.update({ content });
+    await this.withLiveSession(key, (session) => session.rpc.plan.update({ content }));
   }
 
   async deletePlan(key: string): Promise<void> {
-    const session = await this.getOrCreateSession(key);
-    await session.rpc.plan.delete();
+    await this.withLiveSession(key, (session) => session.rpc.plan.delete());
   }
 
   // ── Workspace management ─────────────────────────────────────────────────────
 
   async listWorkspaceFiles(key: string): Promise<string[]> {
-    const session = await this.getOrCreateSession(key);
-    const result = await session.rpc.workspaces.listFiles();
+    const result = await this.withLiveSession(key, (session) => session.rpc.workspaces.listFiles());
     return result.files;
   }
 
   async readWorkspaceFile(key: string, filePath: string): Promise<string> {
-    const session = await this.getOrCreateSession(key);
-    const result = await session.rpc.workspaces.readFile({ path: filePath });
+    const result = await this.withLiveSession(key, (session) =>
+      session.rpc.workspaces.readFile({ path: filePath })
+    );
     return result.content;
   }
 
   async createWorkspaceFile(key: string, filePath: string, content: string): Promise<void> {
-    const session = await this.getOrCreateSession(key);
-    await session.rpc.workspaces.createFile({ path: filePath, content });
+    await this.withLiveSession(key, (session) =>
+      session.rpc.workspaces.createFile({ path: filePath, content })
+    );
   }
 
   async resetSession(key: string): Promise<void> {
@@ -438,6 +495,7 @@ export class SessionManager {
     // Remove from all in-memory structures first so new requests start fresh
     this.sessions.delete(key);
     this.pending.delete(key);
+    this.sessionOperationQueues.delete(key);
     this.messageQueues.delete(key);
     this.store.delete(key);
     // Preserve working dir and MCP overrides across reset so users don't have
@@ -537,6 +595,7 @@ export class SessionManager {
     const allSessions = Array.from(this.sessions.values());
     this.sessions.clear();
     this.pending.clear();
+    this.sessionOperationQueues.clear();
     // disconnect() preserves session data on disk for resume on next start
     await Promise.all(
       allSessions.map((s) =>
